@@ -31,6 +31,9 @@
     return `${WORDS[r[0] % 32]}-${WORDS[r[1] % 32]}-${WORDS[r[2] % 32]}-${String(r[3] % 1000).padStart(3, '0')}`.toUpperCase();
   };
   G3.game = (id) => G3.state.catalog.find((g) => g.id === id) || null;
+  // Game modules (web/games/<id>/game.js) register here; see web/games/README.md for the contract.
+  G3.games = {};
+  G3.registerGame = (id, mod) => { G3.games[id] = mod; };
   G3.me = () => {
     const r = G3.state.room;
     return r && r.slots ? r.slots.find((s) => s.id === r.you) || null : null;
@@ -220,7 +223,26 @@
   }
   ['init', 'room', 'status', 'pong', 'closed', 'conn'].forEach((t) => G3.on(t, bindChips));
 
+  // ---------------------------------------------------------------- who is logged in (the server also guards the pages)
+  function authChip() {
+    fetch('/api/auth/status', { cache: 'no-store' }).then((r) => r.json()).then((s) => {
+      if (!s.enabled) return;
+      if (!s.cleared) { location.href = 'login.html'; return; }
+      const d = document.createElement('div');
+      d.id = 'authChip';
+      d.style.cssText = 'position:fixed;left:10px;bottom:8px;z-index:60;font:11px "Share Tech Mono",monospace;color:#22aa44;background:rgba(5,13,6,.92);border:1px solid #156628;padding:3px 8px';
+      d.innerHTML = `OPERATOR <b style="color:#33FF66">${G3.esc(s.name)}</b> // <span style="color:#FFB000">${G3.esc(s.rank)} L${s.level}</span> // <a href="login.html" id="authOut" style="color:#FF3366">LOGOUT</a>`;
+      document.body.appendChild(d);
+      d.querySelector('#authOut').addEventListener('click', (e) => {
+        e.preventDefault();
+        fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          .finally(() => { location.href = 'login.html'; });
+      });
+    }).catch(() => { /* server gone: the offline banner says so */ });
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
+    authChip();
     applyPrefs();
     G3.$$('[data-beep-label]').forEach((b) => b.addEventListener('click', () => {
       G3.setPref('beep', !G3.prefs.beep); if (G3.prefs.beep) G3.beep(880, 0.1);

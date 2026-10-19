@@ -15,6 +15,7 @@ Messages (JSON objects, "t" = type) carried over any link:
   prof   guest -> host    {av: int}                      avatar choice
   chat   guest -> host    {m}              host -> all   {id, n, m}
   g      any -> host      {d}              host -> others {from, d}   game channel
+         (a guest's d with "_h": true is for the host alone and is not relayed to the other guests)
   png / pon               host -> guest {ts}  /  guest -> host {ts}   round-trip time
   start  host -> all      {game, seed}      stop  host -> all  back to the lobby
   kick / full             host -> guest     leave the room / the room refused you
@@ -283,6 +284,8 @@ class Hub(_Base):
         except (TypeError, ValueError):
             return
         self._ev({"t": "game", "from": from_pid, "d": d})
+        if from_pid and isinstance(d, dict) and d.get("_h"):
+            return                               # a guest's message for the host alone (inputs): don't fan it out
         for pid, p in list(self.peers.items()):
             if pid != from_pid:
                 p.link.send({"t": "g", "from": from_pid, "d": d})

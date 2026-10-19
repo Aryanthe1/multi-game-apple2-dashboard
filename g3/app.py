@@ -161,6 +161,15 @@ class App:
     def public_settings(self):
         return dict(self.settings)
 
+    def set_name(self, name):
+        """The logged-in operator's callsign becomes the player name."""
+        name = hubmod.clean_name(name or "")[:16]
+        with self.lock:
+            if name and name != self.settings["name"]:
+                self.settings["name"] = name
+                self._write(self.settings)
+                self._broadcast({"t": "settings", "settings": self.public_settings()})
+
     # ------------------------------------------------------------ clients
     def add_client(self, client):
         with self.lock:
@@ -205,7 +214,7 @@ class App:
                     self._tick()
             except Exception:
                 traceback.print_exc()
-            time.sleep(0.05)
+            time.sleep(0.015)                  # games stream inputs and snapshots through here: keep it snappy
 
     def _tick(self):
         self._sync_lobby()

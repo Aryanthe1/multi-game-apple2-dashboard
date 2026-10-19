@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>G³ Access Terminal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23020703'/%3E%3Ccircle cx='8' cy='8' r='5' fill='%23e60026'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/fonts.css">
+<link rel="stylesheet" href="css/g3.css">
+<link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+<div class="sun" aria-hidden="true"><div class="sun-rays"></div><div class="sun-disc"></div></div>
+<div class="fixed inset-0 crt-overlay z-50 pointer-events-none"></div>
+<div class="fixed inset-0 crt-vignette z-40 pointer-events-none"></div>
+
+<main class="lg-main">
+  <header class="lg-head">
+    <div class="lg-logo"><span class="g">G</span><span class="three">3</span></div>
+    <div class="lg-title">
+      <div class="lg-kanji" lang="ja">日の出 <span>// HINODE</span></div>
+      <div class="lg-sub">RISING SUN ACCESS TERMINAL</div>
+    </div>
+  </header>
+
+  <section id="screen" class="lg-card" aria-live="polite"></section>
+
+  <footer class="lg-foot">
+    <span id="footMsg">&gt; CLEARANCE IS GRADED BY THE SHRINE (THIS COMPUTER), NOT BY THIS PAGE.</span>
+  </footer>
+</main>
+
+<script src="js/login.js"></script>
+</body>
+</html>

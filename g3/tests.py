@@ -39,11 +39,13 @@ def free_port():
 class WSClient:
     """A tiny browser stand-in."""
 
-    def __init__(self, port, origin=True, host=None):
+    def __init__(self, port, origin=True, host=None, cookie=None):
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=5)
         key = base64.b64encode(os.urandom(16)).decode()
         hdr = (f"GET /ws HTTP/1.1\r\nHost: {host or f'127.0.0.1:{port}'}\r\nUpgrade: websocket\r\n"
                f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n")
+        if cookie:
+            hdr += f"Cookie: {cookie}\r\n"
         if origin is True:
             hdr += f"Origin: http://127.0.0.1:{port}\r\n"
         elif origin:
@@ -115,9 +117,9 @@ class WSClient:
             pass
 
 
-def start(name):
+def start(name, login=False):
     data = tempfile.mkdtemp(prefix=f"g3test_{name}_")
-    httpd, app, port = make_server(port=free_port(), data=data, scan=False)
+    httpd, app, port = make_server(port=free_port(), data=data, scan=False, login=login)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd, app, port, data
 
@@ -286,8 +288,179 @@ def test_host_errors():
     app.stop()
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def http(base, method, path, body=None, cookie=None, headers=None, raw=None):
+    """-> (status, parsed json or None, response headers).  Redirects are reported, not followed."""
+    data = raw if raw is not None else json.dumps(body).encode() if body is not None else None
+    h = {"Content-Type": "application/json"} if data is not None else {}
+    if cookie:
+        h["Cookie"] = cookie
+    h.update(headers or {})
+    req = urllib.request.Request(base + path, data=data, method=method, headers=h)
+    try:
+        r = _opener.open(req)
+        code, text, hd = r.status, r.read(), r.headers
+    except urllib.error.HTTPError as e:
+        code, text, hd = e.code, e.read(), e.headers
+    try:
+        js = json.loads(text)
+    except ValueError:
+        js = None
+    return code, js, hd
+
+
+def perfect_answers(auth, token):
+    """What a scholar would send for the trial in progress (read from the server's own key)."""
+    out = []
+    for k in auth.sessions[token].trial["key"]:
+        if k["kind"] == "one":
+            out.append(k["perm"].index(k["answer"]))
+        elif k["kind"] == "multi":
+            out.append(sorted(k["perm"].index(a) for a in k["answer"]))
+        else:
+            out.append(k["answer"][0])
+    return out
+
+
+def test_lore_bank():
+    from g3 import lore
+    print("the trial's question bank:")
+    seen, bad = set(), []
+    for sec in lore.SECTIONS:
+        pool = lore.BANK[sec["id"]]
+        if len(pool) < lore.PER_SECTION + 2:
+            bad.append(f"{sec['id']} has too few questions")
+        for kind, w, text, opts, ans in pool:
+            if text in seen:
+                bad.append(f"duplicate: {text[:40]}")
+            seen.add(text)
+            if w not in (1, 2, 3):
+                bad.append(f"bad weight: {text[:40]}")
+            if kind == "one" and not (len(set(opts)) == len(opts) >= 3 and 0 <= ans < len(opts)):
+                bad.append(f"bad single choice: {text[:40]}")
+            elif kind == "multi" and not (len(set(opts)) == len(opts) and ans and ans <= set(range(len(opts))) and len(ans) < len(opts)):
+                bad.append(f"bad multi choice: {text[:40]}")
+            elif kind == "text" and not (opts is None and ans and all(a == lore.norm(a) for a in ans)):
+                bad.append(f"bad text question: {text[:40]}")
+            elif kind not in ("one", "multi", "text"):
+                bad.append(f"unknown kind: {kind}")
+    check("every scroll is deep enough and every question is well formed" + (f" ({bad[:2]})" if bad else ""), not bad)
+    import random
+    pub, key = lore.build(random.Random(1))
+    check(f"a trial draws {lore.PER_SECTION} questions from each of the {len(lore.SECTIONS)} scrolls",
+          len(pub) == lore.PER_SECTION * len(lore.SECTIONS) and [q["n"] for q in pub] == list(range(len(pub))))
+    check("the questions sent to the browser carry no answers", all(set(q) <= {"n", "s", "t", "q", "o"} for q in pub))
+    perfect = []
+    for k in key:
+        perfect.append(k["perm"].index(k["answer"]) if k["kind"] == "one" else
+                       sorted(k["perm"].index(a) for a in k["answer"]) if k["kind"] == "multi" else k["answer"][0])
+    check("a perfect set of answers scores 100% and is a Shogun", lore.grade(key, perfect)["pct"] == 100 and lore.grade(key, perfect)["rank"] == "SHOGUN")
+    check("no answers scores 0% and is a Ronin", lore.grade(key, [])["pct"] == 0 and lore.grade(key, [])["level"] == 0)
+    garbage = [True, {}, "x" * 1000, [1, 2, 3], -1, 99, None, [True], [[1]], 1.5, "", [0, 0, 0, 0, 0, 0, 0, 0]] * 4
+    check("garbage answers are just wrong; they don't crash the grader", lore.grade(key, garbage)["pct"] <= 5)
+    check("typed answers ignore case, punctuation and macrons",
+          lore.norm("Amaterasu-Ōmikami") == "amaterasuomikami" and lore.norm("Rōnin!") == "ronin")
+    edges = {a: lore.level_for(a)[0] for a in (0, 49, 50, 64, 65, 79, 80, 92, 93, 100)}
+    check("the rank thresholds are 50 / 65 / 80 / 93", edges == {0: 0, 49: 0, 50: 1, 64: 1, 65: 2, 79: 2, 80: 3, 92: 3, 93: 4, 100: 4})
+    wrong_first = list(perfect)
+    wrong_first[0] = "zzz"
+    check("one wrong answer costs only its own weight", 90 <= lore.grade(key, wrong_first)["pct"] < 100)
+
+
+def test_login():
+    print("login and the Trial of the Rising Sun:")
+    httpd, app, port, data = start("login", login=True)
+    base = f"http://127.0.0.1:{port}"
+    auth = httpd.RequestHandlerClass.auth
+    code, _, hd = http(base, "GET", "/lobby.html")
+    check("a page without a clearance redirects to the login", code == 302 and hd["Location"] == "/login.html")
+    check("the root and the launcher redirect too", http(base, "GET", "/")[0] == 302 and http(base, "GET", "/index.html")[0] == 302)
+    check("the login page and the scripts it needs are public",
+          http(base, "GET", "/login.html")[0] == 200 and http(base, "GET", "/js/login.js")[0] == 200 and http(base, "GET", "/css/login.css")[0] == 200)
+    check("the answers are not in any file the browser can fetch", b"Amaterasu" not in urllib.request.urlopen(base + "/js/login.js").read())
+    check("the bridge refuses a websocket without a clearance", WSClient(port).status == 401)
+    st = http(base, "GET", "/api/auth/status")[1]
+    check("status says: login enabled, nobody in", st["enabled"] and not st["authed"])
+
+    code, js, _ = http(base, "POST", "/api/auth/register", {"name": "a b", "pass": "secret"})
+    check("a callsign with spaces is refused", code == 400 and "Callsign" in js["error"])
+    check("a short passcode is refused", http(base, "POST", "/api/auth/register", {"name": "okname", "pass": "abc"})[0] == 400)
+    code, js, hd = http(base, "POST", "/api/auth/register", {"name": "Hanzo", "pass": "kitsune!"})
+    cookie = (hd["Set-Cookie"] or "").split(";")[0]
+    check("registering logs you in", code == 200 and js["authed"] and js["level"] == 0 and not js["cleared"])
+    check("the session cookie is HttpOnly and SameSite=Strict", "HttpOnly" in hd["Set-Cookie"] and "SameSite=Strict" in hd["Set-Cookie"])
+    check("your callsign becomes your player name", app.settings["name"] == "Hanzo")
+    check("a new operator still can't reach the pages or the bridge",
+          http(base, "GET", "/lobby.html", cookie=cookie)[0] == 302 and WSClient(port, cookie=cookie).status == 401)
+    check("the callsign is taken (case-insensitively)", http(base, "POST", "/api/auth/register", {"name": "HANZO", "pass": "other-pass"})[0] == 409)
+    stored = (__import__("pathlib").Path(data) / "auth.json").read_text()
+    check("the passcode is stored salted and hashed, never in the clear", "kitsune" not in stored and '"hash"' in stored and '"salt"' in stored)
+
+    code, js, _ = http(base, "POST", "/api/auth/quiz", {})
+    check("the trial needs a login", code == 401)
+    code, quiz, _ = http(base, "POST", "/api/auth/quiz", {}, cookie)
+    check("a trial is 36 questions over 6 scrolls", code == 200 and quiz["total"] == 36 and len(quiz["sections"]) == 6)
+    check("and carries no answer key", "answer" not in json.dumps(quiz) and all(set(q) <= {"n", "s", "t", "q", "o"} for q in quiz["questions"]))
+    code, res, _ = http(base, "POST", "/api/auth/submit", {"id": "nope", "answers": []}, cookie)
+    check("answers for the wrong trial are refused", code == 409)
+    tok = cookie.split("=", 1)[1]
+    code, res, _ = http(base, "POST", "/api/auth/submit", {"id": quiz["id"], "answers": [0] * 36}, cookie)
+    check("a failed trial is Ronin: no clearance, a 60 s cooldown", code == 200 and not res["passed"] and res["level"] == 0 and res["retryIn"] == 60)
+    check("the same trial can't be submitted twice", http(base, "POST", "/api/auth/submit", {"id": quiz["id"], "answers": [0] * 36}, cookie)[0] == 409)
+    code, js, _ = http(base, "POST", "/api/auth/quiz", {}, cookie)
+    check("the shrine stays closed during the cooldown", code == 429 and 0 < js["retryIn"] <= 60)
+    check("status reports the cooldown", 0 < http(base, "GET", "/api/auth/status", cookie=cookie)[1]["retryIn"] <= 60)
+
+    auth.accounts["hanzo"]["retry_at"] = 0
+    quiz = http(base, "POST", "/api/auth/quiz", {}, cookie)[1]
+    code, res, _ = http(base, "POST", "/api/auth/submit", {"id": quiz["id"], "answers": perfect_answers(auth, tok)}, cookie)
+    check("a perfect trial earns SHOGUN, level 4", code == 200 and res["passed"] and res["pct"] == 100 and res["rank"] == "SHOGUN" and res["level"] == 4)
+    check("with a result for every scroll", len(res["sections"]) == 6 and all(s["pct"] == 100 for s in res["sections"]))
+    check("the pages open now", http(base, "GET", "/lobby.html", cookie=cookie)[0] == 200 and http(base, "GET", "/", cookie=cookie)[0] == 200)
+    c = WSClient(port, cookie=cookie)
+    check("and so does the bridge", c.status == 101 and c.expect(lambda m: m["t"] == "init") is not None)
+    c.close()
+    st = http(base, "GET", "/api/auth/status", cookie=cookie)[1]
+    check("status shows the operator and rank", st["name"] == "Hanzo" and st["rank"] == "SHOGUN" and st["cleared"])
+
+    quiz = http(base, "POST", "/api/auth/quiz", {}, cookie)[1]
+    res = http(base, "POST", "/api/auth/submit", {"id": quiz["id"], "answers": []}, cookie)[1]
+    st = http(base, "GET", "/api/auth/status", cookie=cookie)[1]
+    check("a later bad trial never takes a rank away", res["level"] == 0 and res["best"] == 4 and st["level"] == 4 and st["cleared"])
+
+    check("a cross-site page can't post to the login", http(base, "POST", "/api/auth/login", {"name": "Hanzo", "pass": "kitsune!"}, headers={"Origin": "http://evil.example.com"})[0] == 403)
+    check("login only takes JSON", http(base, "POST", "/api/auth/login", raw=b"name=Hanzo", headers={"Content-Type": "text/plain"})[0] == 415)
+    check("an oversized body is refused", http(base, "POST", "/api/auth/login", raw=b"{" + b" " * 70000 + b"}")[0] == 413)
+
+    http(base, "POST", "/api/auth/logout", {}, cookie)
+    check("logging out ends the session", not http(base, "GET", "/api/auth/status", cookie=cookie)[1]["authed"] and http(base, "GET", "/lobby.html", cookie=cookie)[0] == 302)
+
+    code, js, _ = http(base, "POST", "/api/auth/login", {"name": "hanzo", "pass": "wrong"})
+    check("a wrong passcode is refused without saying which part was wrong", code == 401 and js["error"] == http(base, "POST", "/api/auth/login", {"name": "nobody", "pass": "wrong"})[1]["error"])
+    codes = [http(base, "POST", "/api/auth/login", {"name": "hanzo", "pass": "wrong"})[0] for _ in range(5)]
+    code, js, _ = http(base, "POST", "/api/auth/login", {"name": "hanzo", "pass": "kitsune!"})
+    check("five wrong passcodes lock the callsign for a while, even for the right one", code == 429 and js["retryIn"] > 0)
+    auth.fails.clear()
+    code, js, hd = http(base, "POST", "/api/auth/login", {"name": "HANZO", "pass": "kitsune!"})
+    check("the right passcode gets in, and the rank came back from disk-backed state", code == 200 and js["rank"] == "SHOGUN")
+
+    from g3.auth import Auth
+    again = Auth(data)
+    tok2 = again.login("hanzo", "kitsune!")
+    check("accounts survive a restart", again.status(tok2)["level"] == 4)
+    httpd.shutdown()
+    app.stop()
+
+
 def main():
-    for fn in (test_guards, test_two_servers_one_room, test_host_errors):
+    for fn in (test_lore_bank, test_login, test_guards, test_two_servers_one_room, test_host_errors):
         try:
             fn()
         except Exception as e:

@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from g3.app import App, Client
+from g3.auth import Auth, AuthError
 from g3.ws import WebSocket, accept_key
 
 WEB = Path(__file__).resolve().parent / "web"
@@ -37,11 +38,74 @@ mimetypes.add_type("text/css", ".css")
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "G3"
-    app: App = None                   # set by serve()
+    app: App = None                   # set by make_server()
+    auth: Auth = None                 # None: no login (tests, --no-login)
+    cookie_name = "g3s"               # includes the port: cookies are shared between ports on 127.0.0.1
     allowed_hosts: set = set()
 
     def log_message(self, fmt, *args):
         pass
+
+    # ---- login
+    def _token(self):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == self.cookie_name:
+                return value
+        return None
+
+    def _cleared(self):
+        return self.auth is None or self.auth.cleared(self._token())
+
+    def _redirect(self, where):
+        self.send_response(302)
+        self.send_header("Location", where)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def _json(self, code, obj, cookie=None):
+        self._send(code, "application/json", json.dumps(obj).encode(), [("Set-Cookie", cookie)] if cookie else ())
+
+    def _set_cookie(self, token, age=43200):
+        return f"{self.cookie_name}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={age}"
+
+    def do_POST(self):
+        if not self._loopback_ok() or not self._origin_ok():
+            return self._deny()
+        path = urlparse(self.path).path
+        if self.auth is None or not path.startswith("/api/auth/"):
+            return self._deny(404, "not found")
+        if "application/json" not in (self.headers.get("Content-Type") or ""):
+            return self._deny(415, "json only")
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if not 0 <= n <= 65536:
+            return self._deny(413, "too large")
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError:
+            return self._json(400, {"error": "bad request"})
+        what, tok = path[len("/api/auth/"):], self._token()
+        if not isinstance(body, dict):
+            body = {}
+        try:
+            if what in ("login", "register"):
+                tok = (self.auth.login if what == "login" else self.auth.register)(body.get("name"), body.get("pass"))
+                self.app.set_name(self.auth.name_of(tok))
+                return self._json(200, dict(self.auth.status(tok), ok=True), self._set_cookie(tok))
+            if what == "logout":
+                self.auth.logout(tok)
+                return self._json(200, {"ok": True}, self._set_cookie("", 0))
+            if what == "quiz":
+                return self._json(200, self.auth.start_trial(tok))
+            if what == "submit":
+                return self._json(200, self.auth.submit_trial(tok, body.get("id"), body.get("answers")))
+        except AuthError as e:
+            return self._json(e.status, {"error": str(e), "retryIn": e.retry_in})
+        self._deny(404, "not found")
 
     # ---- request guards
     def _loopback_ok(self):
@@ -69,20 +133,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._deny()
         path = urlparse(self.path).path
         if path == "/ws":
+            if not self._cleared():
+                return self._deny(401, "log in first")
             return self._websocket()
         if path == "/api/health":
             body = json.dumps({"ok": True, "app": "g3"}).encode()
             return self._send(200, "application/json", body)
+        if path == "/api/auth/status":
+            st = {"enabled": False, "authed": True, "cleared": True} if self.auth is None \
+                else dict(self.auth.status(self._token()), enabled=True)
+            return self._send(200, "application/json", json.dumps(st).encode(), [("Cache-Control", "no-store")])
+        if (path.endswith(".html") or path.endswith("/")) and path != "/login.html" and not self._cleared():
+            return self._redirect("/login.html")                 # the pages need a clearance; scripts and styles are public
         self._static(path)
 
     def do_HEAD(self):
         self._deny(405, "method not allowed")
 
-    def _send(self, code, ctype, body):
+    def _send(self, code, ctype, body, extra=()):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache")
+        for k, v in extra:
+            self.send_header(k, v)
+        if not any(k == "Cache-Control" for k, _ in extra):
+            self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
@@ -141,11 +216,13 @@ class Server(ThreadingHTTPServer):
     allow_reuse_address = False
 
 
-def make_server(host="127.0.0.1", port=DEFAULT_PORT, data="~/.g3", scan=True):
-    """Open the app and an HTTP server on the first free port from `port`."""
+def make_server(host="127.0.0.1", port=DEFAULT_PORT, data="~/.g3", scan=True, login=False):
+    """Open the app and an HTTP server on the first free port from `port`.  With login=True every page and the
+    WebSocket need a clearance earned through the Trial of the Rising Sun (g3/auth.py)."""
     app = App(data)
     hosts = set()
-    handler = type("BoundHandler", (Handler,), {"app": app, "allowed_hosts": hosts})
+    handler = type("BoundHandler", (Handler,), {"app": app, "allowed_hosts": hosts,
+                                                "auth": Auth(app.data_dir) if login else None})
     last = None
     for p in range(port, port + (20 if scan else 1)):
         try:
@@ -158,6 +235,7 @@ def make_server(host="127.0.0.1", port=DEFAULT_PORT, data="~/.g3", scan=True):
         raise SystemExit(f"G3: couldn't open a port near {port}: {last}")
     port = httpd.server_address[1]
     hosts.update({f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"})
+    handler.cookie_name = f"g3s_{port}"
     return httpd, app, port
 
 
@@ -202,19 +280,22 @@ def open_window(url, data):
     profile = os.path.join(os.path.expanduser(str(data)), "window")      # its own profile: its own process
     try:
         return subprocess.Popen([exe, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
-                                 "--no-default-browser-check", "--window-size=1360,900"])
+                                 "--no-default-browser-check", "--window-size=1360,900",
+                                 # the host's page runs the match: don't let a covered/minimised window slow it down
+                                 "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
+                                 "--disable-backgrounding-occluded-windows"])
     except OSError:
         return None
 
 
-def serve(host="127.0.0.1", port=DEFAULT_PORT, data="~/.g3", open_browser=True, scan=True, window=True):
+def serve(host="127.0.0.1", port=DEFAULT_PORT, data="~/.g3", open_browser=True, scan=True, window=True, login=True):
     if scan and already_running(port):
         url = f"http://127.0.0.1:{port}/"
         print(f"G3 is already running at {url}; opening that one instead of starting another.")
         if open_browser and not (window and open_window(url, data)):
             webbrowser.open(url)
         return 0
-    httpd, app, port = make_server(host, port, data, scan)
+    httpd, app, port = make_server(host, port, data, scan, login)
     url = f"http://127.0.0.1:{port}/"
     print(f"G3 is running at {url}   (close the G3 window or press Ctrl+C to quit)")
     print(f"  your name: {app.settings['name']}    data: {app.data_dir}")
@@ -244,8 +325,10 @@ def main(argv=None):
     ap.add_argument("--data", default=os.environ.get("G3_DATA", "~/.g3"), help="settings folder (use a different one for a second copy)")
     ap.add_argument("--no-browser", action="store_true", help="don't open any window")
     ap.add_argument("--tab", action="store_true", help="open a normal browser tab instead of an app window")
+    ap.add_argument("--no-login", action="store_true", help="skip the login and the Trial of the Rising Sun (development)")
     args = ap.parse_args(argv)
-    return serve(port=args.port, data=args.data, open_browser=not args.no_browser, window=not args.tab)
+    return serve(port=args.port, data=args.data, open_browser=not args.no_browser, window=not args.tab,
+                 login=not (args.no_login or os.environ.get("G3_NOLOGIN")))
 
 
 if __name__ == "__main__":

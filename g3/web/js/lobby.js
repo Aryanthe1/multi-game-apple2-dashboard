@@ -222,9 +222,44 @@
         </div></div>`;
   }
 
+  // ---------------------------------------------------------------- a game running in the panel (web/games/<id>/game.js)
+  let gameInst = null, gameKey = '', gameQueue = [];
+
+  function stopGame() {
+    if (gameInst) { try { gameInst.destroy(); } catch (e) { console.error(e); } }
+    gameInst = null; gameKey = ''; gameQueue = [];
+    $('#heroSection').classList.remove('hidden');
+  }
+
+  function mountGame(r, g) {
+    const key = `${r.game}:${r.seed}`;
+    if (gameInst && gameKey === key) { if (gameInst.onRoom) gameInst.onRoom(r); return; }
+    stopGame();
+    const panel = $('#panel');
+    panel.innerHTML = '<div id="gameRoot"></div>';
+    $('#heroSection').classList.add('hidden');                // the game wants the room
+    const send = (d, hostOnly) => G3.send('game', { d: hostOnly ? Object.assign({ _h: true }, d) : d });
+    gameKey = key;
+    try {
+      gameInst = G3.games[r.game].mount({
+        root: $('#gameRoot'), game: g, seed: r.seed, room: roomOf, send,
+        leave: () => G3.send('leave'), backToLobby: () => G3.send('stop_game'),
+      });
+    } catch (e) {
+      console.error(e);
+      gameInst = null; gameKey = '';
+      panel.innerHTML = playingHTML(r, g);
+      return;
+    }
+    const queued = gameQueue; gameQueue = [];
+    queued.forEach((m) => gameInst.onMessage && gameInst.onMessage(m.from, m.d));
+  }
+
   function renderPanel() {
     const r = roomOf(), g = gameNow();
     if (!g) return;
+    if (r && r.phase === 'playing' && G3.games[r.game]) { mountGame(r, g); return; }
+    stopGame();
     $('#panel').innerHTML = !r ? setupHTML(g) : r.phase === 'playing' ? playingHTML(r, g) : lobbyHTML(r, g);
   }
 
@@ -402,6 +437,8 @@
   G3.on('start', () => { pulses = []; [660, 880, 1100].forEach((f, i) => setTimeout(() => G3.beep(f, 0.12, 'square'), i * 90)); });
   G3.on('game', (m) => {
     const r = roomOf();
+    if (gameInst) { if (gameInst.onMessage) gameInst.onMessage(m.from, m.d); return; }
+    if (G3.games[gid()] && gameQueue.length < 100) { gameQueue.push(m); return; }   // arrived before the game mounted
     if (m.d && m.d.k === 'pulse' && r && m.from !== r.you) { pulses.push({ from: m.from, n: m.d.n }); renderPanel(); }
   });
   G3.on('ports', (m) => { ui.ports = m.ports; if (ready && !roomOf()) renderPanel(); });

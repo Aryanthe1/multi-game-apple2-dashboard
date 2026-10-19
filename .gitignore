@@ -1,0 +1,37 @@
+# Design source material (Stitch exports): not needed to run or build the game
+stitch_retro_terminal_game_launcher/
+stitch*/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Node (only used for the optional sim tests; nothing is installed in the repo)
+node_modules/
+package-lock.json
+
+# G3's own runtime data (normally in ~/.g3): settings, accounts, the online-play log, the app-window browser profile
+.g3/
+.g3_*/
+online_log.txt
+settings.json
+
+# Local tooling and editor state
+.claude/
+.vscode/
+.idea/
+*.code-workspace
+
+# Scratch, logs, archives and OS junk
+*.log
+*.tmp
+*.bak
+*.zip
+__MACOSX/
+.DS_Store
+Thumbs.db
+desktop.ini
