@@ -1,0 +1,120 @@
+/* G3 -- Cathode Indie Terminal. Shared by every page (values from the Stitch design system). */
+:root {
+  --phosphor-green: #33FF66;
+  --phosphor-dim: #156628;
+  --phosphor-bright: #66FF88;
+  --phosphor-amber: #FFB000;
+  --crt-bg: #050d06;
+  --crt-dark: #020703;
+  --scan-op: 0.4;
+  --theme-filter: none;
+}
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  background-color: var(--crt-dark);
+  color: var(--phosphor-green);
+  font-family: 'Share Tech Mono', 'VT323', monospace;
+  overflow-x: hidden;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+input, textarea, .selectable { user-select: text; }
+
+.font-pixel { font-family: 'Press Start 2P', monospace; }
+.font-crt { font-family: 'VT323', monospace; }
+
+/* CRT glow and text bloom */
+.glow-green { text-shadow: 0 0 4px rgba(51, 255, 102, 0.8), 0 0 10px rgba(51, 255, 102, 0.4); }
+.glow-amber { text-shadow: 0 0 4px rgba(255, 176, 0, 0.8), 0 0 10px rgba(255, 176, 0, 0.4); }
+.box-glow-green { box-shadow: 0 0 8px rgba(51, 255, 102, 0.35), inset 0 0 8px rgba(51, 255, 102, 0.15); }
+
+/* scanlines + vignette (fixed overlays, outside the themed container) */
+.crt-overlay {
+  background:
+    linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, var(--scan-op)) 50%),
+    linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 255, 0, 0.03));
+  background-size: 100% 4px, 6px 100%;
+  pointer-events: none;
+}
+.crt-vignette {
+  background: radial-gradient(circle at center, transparent 65%, rgba(0, 10, 2, 0.85) 100%);
+  pointer-events: none;
+}
+
+@keyframes crtFlicker {
+  0% { opacity: 0.985; } 50% { opacity: 1; } 52% { opacity: 0.94; }
+  54% { opacity: 0.99; } 80% { opacity: 0.975; } 100% { opacity: 1; }
+}
+.crt-screen { animation: crtFlicker 0.15s infinite; filter: var(--theme-filter); }
+
+@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.cursor-blink { animation: blink 0.9s infinite steps(1); }
+
+@keyframes laserSweep {
+  0% { top: 0%; opacity: 0; } 15% { opacity: 0.8; } 85% { opacity: 0.8; } 100% { top: 100%; opacity: 0; }
+}
+.laser-line { animation: laserSweep 4.5s ease-in-out infinite; }
+
+/* settings that switch effects off (CRT / DISPLAY page) */
+html.no-scan .crt-overlay { display: none; }
+html.no-bloom .glow-green, html.no-bloom .glow-amber { text-shadow: none; }
+html.no-bloom .box-glow-green { box-shadow: none; }
+html.no-bloom .crt-screen { animation: none; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #020703; border-left: 1px solid #156628; }
+::-webkit-scrollbar-thumb { background: #33FF66; }
+
+/* terminal inputs: zero radius, 1px borders, block cursor colour */
+.t-input {
+  background: #020703; color: #33FF66; border: 1px solid #156628; padding: 0.3rem 0.5rem;
+  font-family: 'Share Tech Mono', monospace; font-size: 12px; width: 100%; border-radius: 0; outline: none;
+  caret-color: #33FF66; text-transform: none;
+}
+.t-input:focus { border-color: #33FF66; box-shadow: 0 0 8px rgba(51, 255, 102, 0.3); }
+.t-input::placeholder { color: #156628; }
+select.t-input { appearance: none; cursor: pointer; }
+
+button { cursor: pointer; border-radius: 0; font-family: inherit; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 1px dashed #00eefc; outline-offset: 2px; }
+
+#offline {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: none; text-align: center;
+  background: #FF3366; color: #050d06; font-family: 'Press Start 2P', monospace; font-size: 10px; padding: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-screen, .laser-line { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------------
+   READABLE TEXT (Settings > CRT / DISPLAY).  On by default: the Stitch layouts use 7-10px
+   labels in very dark greens, which are hard to read on a real screen.  This keeps the
+   look but raises the smallest sizes, brightens the dim labels, and calms the flicker.
+   --------------------------------------------------------------------------------- */
+html.readable body { font-size: 15px; }
+html.readable .text-\[7px\], html.readable .text-\[8px\], html.readable .text-\[9px\] { font-size: 12px !important; line-height: 1.35 !important; }
+html.readable .text-\[10px\] { font-size: 13px !important; line-height: 1.4 !important; }
+html.readable .text-\[11px\], html.readable .text-xs { font-size: 14px !important; line-height: 1.45 !important; }
+html.readable .text-\[12px\], html.readable .text-sm { font-size: 15px !important; line-height: 1.45 !important; }
+/* Press Start 2P is unreadable below ~11px: swap the tiny uses to the mono face */
+html.readable .font-pixel.text-\[7px\], html.readable .font-pixel.text-\[8px\], html.readable .font-pixel.text-\[9px\], html.readable .font-pixel.text-\[10px\] {
+  font-family: 'Share Tech Mono', monospace !important; font-weight: 700; letter-spacing: 0.04em; font-size: 13px !important;
+}
+html.readable .font-pixel.text-\[11px\] { font-size: 12px !important; }
+/* dim labels were #156628 / #22aa44 / #1e7e34 on near-black */
+html.readable .text-\[\#156628\], html.readable .text-\[\#1e7e34\] { color: #52b36b !important; }
+html.readable .text-\[\#22aa44\] { color: #6fdc8a !important; }
+html.readable .t-input::placeholder { color: #3f9d57; }
+html.readable .text-outline, html.readable .text-on-surface-variant { color: #cfdcca !important; }
+html.readable .text-outline-variant { color: #5d7a5a !important; }
+html.readable .glow-green { text-shadow: 0 0 3px rgba(51, 255, 102, 0.45); }
+html.readable .glow-amber { text-shadow: 0 0 3px rgba(255, 176, 0, 0.45); }
+/* scanlines and flicker are what chop glyphs up */
+html.readable .crt-overlay { opacity: 0.55; }
+html.readable .crt-screen { animation: none; }
+html.readable .crt-vignette { opacity: 0.6; }

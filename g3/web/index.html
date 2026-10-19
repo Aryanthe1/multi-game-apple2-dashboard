@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>G³ Game Launcher</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23020703'/%3E%3Crect x='3' y='3' width='10' height='10' fill='none' stroke='%2333FF66' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/fonts.css">
+<link rel="stylesheet" href="css/g3.css">
+<script src="vendor/tailwind.js"></script>
+<script src="vendor/three.min.js"></script>
+</head>
+<body class="min-h-screen bg-[#030904] text-[#33FF66] relative flex flex-col justify-between selection:bg-[#33FF66] selection:text-[#050d06]">
+<div id="offline"></div>
+<div class="fixed inset-0 crt-overlay z-50 pointer-events-none"></div>
+<div class="fixed inset-0 crt-vignette z-40 pointer-events-none"></div>
+
+<div class="crt-screen relative z-10 flex flex-col min-h-screen w-full px-4 py-3 md:px-8 md:py-5 max-w-[1720px] mx-auto">
+
+  <header class="w-full border border-[#33FF66] bg-[#071208]/90 p-3 mb-4 box-glow-green">
+    <div class="flex flex-wrap items-center justify-between gap-4 font-pixel text-xs md:text-sm">
+      <a href="index.html" class="flex items-baseline" title="G³ launcher">
+        <span class="text-2xl md:text-3xl text-[#33FF66] glow-green font-pixel tracking-tighter">G</span>
+        <span class="text-sm md:text-base text-[#FFB000] glow-amber font-pixel -translate-y-2">3</span>
+        <span class="inline-block w-2.5 h-5 bg-[#33FF66] ml-2 cursor-blink align-middle"></span>
+      </a>
+      <div class="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs font-mono">
+        <div class="border border-[#156628] px-2 py-1 bg-[#050d06]"><span class="text-[#156628]">LINK:</span> <span class="text-[#33FF66]" data-bind="link">NONE</span></div>
+        <div class="border border-[#156628] px-2 py-1 bg-[#050d06]"><span class="text-[#156628]">PING:</span> <span class="text-[#33FF66]" data-bind="ping">--</span></div>
+        <div class="border border-[#156628] px-2 py-1 bg-[#050d06]"><span class="text-[#156628]">PLAYERS:</span> <span class="text-[#FFB000] glow-amber" data-bind="players">0/0</span></div>
+        <button class="border border-[#33FF66] hover:bg-[#33FF66] hover:text-[#050d06] px-2 py-1 font-mono transition-colors text-xs" data-beep-label title="Toggle terminal audio">[ ♪ BEEP:ON ]</button>
+        <a class="border border-[#33FF66] hover:bg-[#33FF66] hover:text-[#050d06] px-2 py-1 font-mono transition-colors text-xs" href="settings.html" title="Settings">[ CFG ]</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch min-h-[580px]">
+
+    <!-- cube and the selected cartridge -->
+    <section class="lg:col-span-7 flex flex-col border border-[#33FF66] bg-[#050d06]/95 box-glow-green p-3 md:p-5">
+      <div class="relative flex-1 w-full min-h-[380px] md:min-h-[460px] flex items-center justify-center overflow-hidden border border-[#156628]/60 bg-[#020703] cursor-grab active:cursor-grabbing" id="cube3dContainer">
+        <div class="absolute inset-0 pointer-events-none opacity-20 bg-[linear-gradient(to_right,#33FF66_1px,transparent_1px),linear-gradient(to_bottom,#33FF66_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+        <div class="absolute bottom-3 left-3 flex gap-1 z-20" id="faceButtons"></div>
+      </div>
+
+      <div class="mt-4 border border-[#33FF66] p-3 bg-[#071208] flex flex-col md:flex-row md:items-center justify-between gap-3" id="activeFacetCard">
+        <div>
+          <div class="text-base md:text-lg font-pixel text-[#33FF66] glow-green tracking-tight" id="gameExeTitle">BOBBLE_LEAGUE.EXE</div>
+          <div class="text-xs font-mono text-[#FFB000] mt-1" id="gameMetaSub"></div>
+        </div>
+        <button class="group px-5 py-3 border-2 border-[#33FF66] bg-[#050d06] hover:bg-[#33FF66] transition-all duration-150 box-glow-green flex items-center gap-3" id="launchBtn">
+          <span class="text-base text-[#33FF66] group-hover:text-[#050d06] font-pixel">▶</span>
+          <span class="text-xs font-pixel text-[#33FF66] group-hover:text-[#050d06] tracking-wider">[ SELECT ]</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- room roster -->
+    <aside class="lg:col-span-5 flex flex-col border border-[#33FF66] bg-[#050d06]/95 box-glow-green p-3 md:p-4">
+      <div class="flex items-center justify-between border-b border-[#33FF66] pb-2 mb-3">
+        <div class="font-pixel text-[11px] md:text-xs text-[#33FF66] flex items-center gap-1.5"><span class="text-[#FFB000]">►</span><span>ROOM</span></div>
+        <span class="text-[9px] font-pixel text-[#FFB000] bg-[#156628]/30 px-1.5 py-0.5 border border-[#156628]" id="rosterBadge">[EMPTY]</span>
+      </div>
+      <div class="space-y-1.5 overflow-y-auto flex-1 pr-1" id="rosterList"></div>
+    </aside>
+  </main>
+
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/launcher.js"></script>
+</body>
+</html>

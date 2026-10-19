@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>G³ System Configuration</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23020703'/%3E%3Crect x='3' y='3' width='10' height='10' fill='none' stroke='%2333FF66' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/fonts.css">
+<link rel="stylesheet" href="css/g3.css">
+<script src="vendor/tailwind.js"></script>
+<script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"outline":"#859581","on-tertiary":"#670020","on-primary-container":"#007225","surface-container-high":"#232c23","surface-dim":"#0c150d","on-secondary-fixed-variant":"#004f54","secondary":"#d3fbff","on-tertiary-fixed":"#400011","error":"#ffb4ab","inverse-on-surface":"#293329","surface-variant":"#2d372e","on-error-container":"#ffdad6","on-primary-fixed-variant":"#005319","on-secondary":"#00363a","primary-fixed":"#6dff7f","surface-container-lowest":"#071009","on-background":"#dbe6d8","surface-bright":"#323c32","error-container":"#93000a","primary-fixed-dim":"#00e554","surface-container-highest":"#2d372e","inverse-surface":"#dbe6d8","background":"#0c150d","tertiary-fixed":"#ffd9dc","on-surface-variant":"#bacbb5","inverse-primary":"#006e24","surface-container":"#192219","surface":"#0c150d","on-error":"#690005","surface-tint":"#00e554","on-primary-fixed":"#002106","on-secondary-container":"#00686f","secondary-fixed":"#7df4ff","surface-container-low":"#151e15","outline-variant":"#3b4b3a","tertiary":"#fffaf9","tertiary-fixed-dim":"#ffb2ba","on-tertiary-container":"#c40044","on-primary":"#00390e","on-surface":"#dbe6d8","primary":"#f1ffeb","primary-container":"#33ff66","tertiary-container":"#ffd4d7","secondary-fixed-dim":"#00dbe9","on-secondary-fixed":"#002022","on-tertiary-fixed-variant":"#910030","secondary-container":"#00eefc"},borderRadius:{"DEFAULT":"0","lg":"0","xl":"0","full":"9999px"},spacing:{"gutter":"1rem","margin-mobile":"0.75rem","space-lg":"1.5rem","space-xs":"0.25rem","margin":"1.5rem","space-md":"1rem","gutter-lg":"1.5rem","space-sm":"0.5rem","space-xl":"2rem","margin-desktop":"2rem","gutter-sm":"0.5rem"},fontFamily:{"headline-lg":["Space Mono"],"body-md":["Space Mono"],"headline-md":["Space Mono"],"headline-lg-mobile":["Space Mono"],"label-md":["Space Mono"],"headline-sm":["Space Mono"],"body-sm":["Space Mono"],"title-sm":["Space Mono"],"label-lg":["Space Mono"],"body-lg":["Space Mono"],"label-sm":["Space Mono"],"title-md":["Space Mono"],"title-lg":["Space Mono"]}}}};</script>
+<style>
+  body { font-family: 'Space Mono', monospace; }
+  .nav-btn[aria-current="true"] { background: #33ff66; color: #071009; }
+  .bar-slider { cursor: pointer; user-select: none; }
+</style>
+</head>
+<body class="bg-background font-body-md text-on-surface antialiased select-none">
+<div id="offline"></div>
+<div class="fixed inset-0 crt-overlay z-[9999] pointer-events-none"></div>
+
+<div class="crt-screen">
+<header class="sticky top-0 w-full z-50 bg-surface-container-lowest/95 shadow-[0_1px_8px_rgba(0,0,0,0.6)] border-b border-outline-variant">
+  <div class="h-16 w-full px-margin-desktop flex items-center justify-between font-label-md">
+    <div class="flex items-center gap-space-md">
+      <a href="index.html" class="flex items-center gap-space-xs font-title-md text-primary-container tracking-wider font-headline-sm" title="Back to the launcher">
+        <span class="px-space-xs py-0.5 bg-primary-container text-surface-container-lowest">G³</span>
+        <span class="text-on-surface-variant font-label-sm hidden sm:inline">APPLE //e ROM 0xEA12</span>
+      </a>
+      <div class="h-4 w-px bg-outline-variant hidden md:block"></div>
+      <div class="hidden md:flex items-center gap-space-sm text-on-surface-variant font-label-sm">
+        <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-primary-container animate-pulse"></span>LINK:<span data-bind="link">NONE</span></span>
+        <span class="text-outline-variant">|</span>
+        <span>PING:<span data-bind="ping">--</span></span>
+        <span class="text-outline-variant">|</span>
+        <button class="text-secondary hover:text-primary" data-beep-label>[ ♪ BEEP:ON ]</button>
+      </div>
+    </div>
+    <nav class="flex items-center gap-space-sm" id="topnav">
+      <a class="px-space-sm py-1 border border-outline-variant text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-title-sm" href="index.html">[ ◄ HOME ]</a>
+      <a class="px-space-sm py-1 border border-outline-variant transition-colors bg-primary-container text-on-primary-container font-title-sm" href="#" data-goto="section-account">[ 1:CONFIG ]</a>
+      <a class="px-space-sm py-1 border border-outline-variant text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-title-sm" href="#" data-goto="section-audio">[ 2:AUDIO ]</a>
+      <a class="px-space-sm py-1 border border-outline-variant text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-title-sm" href="#" data-goto="section-connected">[ 3:MODEM ]</a>
+      <a class="px-space-sm py-1 border border-outline-variant text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-title-sm hidden lg:inline-block" href="#" data-goto="section-about">[ 4:DIAG ]</a>
+    </nav>
+    <div class="flex items-center gap-space-sm">
+      <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-[16px]" id="hdrAvatar">🎮</div>
+    </div>
+  </div>
+</header>
+
+<main class="w-full bg-surface min-h-[calc(100vh-64px)]">
+<div class="flex flex-col w-full p-space-sm sm:p-space-md lg:p-space-lg max-w-[1440px] mx-auto space-y-space-md font-body-md text-on-surface">
+
+  <!-- TOP STATUS TAPE / BREADCRUMB -->
+  <div class="w-full bg-surface-container-lowest p-space-sm flex flex-wrap items-center justify-between gap-y-2 text-on-surface-variant font-label-md">
+    <div class="flex items-center gap-space-sm">
+      <span class="text-primary-container font-title-sm tracking-wider">ROM://DEV_CFG.BIN</span>
+      <span class="text-outline-variant">►</span>
+      <span class="text-primary font-headline-sm text-[13px]">G³_SYS_CONFIG::PREFERENCES</span>
+      <span class="hidden sm:inline-block px-1.5 py-0.2 bg-surface-container-high text-secondary-fixed text-[10px]" id="saveBadge">[ NVRAM: SAVED ]</span>
+    </div>
+    <div class="flex items-center gap-space-md text-[11px]">
+      <span class="text-on-surface-variant">BRIDGE: <span class="text-primary-fixed-dim" id="crumbBridge">---</span></span>
+      <span class="text-outline-variant">//</span>
+      <span class="text-on-surface-variant">VERSION: <span class="text-primary-container" id="crumbVer">---</span></span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-space-md items-start">
+
+    <!-- LEFT COLUMN: NAVIGATION & TELEMETRY -->
+    <aside class="lg:col-span-4 xl:col-span-3 flex flex-col space-y-space-md lg:sticky lg:top-20">
+      <div class="bg-surface-container-lowest p-space-md shadow-xl flex flex-col space-y-space-sm">
+        <div class="flex items-center justify-between font-label-md text-primary-container pb-space-xs">
+          <span>// CONFIG_SYS //</span><span class="text-[10px] text-on-surface-variant">ADDR:0x00FF</span>
+        </div>
+        <div class="text-[11px] text-outline-variant truncate select-none leading-none">┌───────────────────────────────────┐</div>
+        <nav class="flex flex-col space-y-1 font-title-sm" id="terminal-nav">
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-account" aria-current="true"><span class="flex items-center gap-1.5"><span class="nav-cursor">&gt;</span><span class="tracking-wider">01: PROFILE</span></span><span class="text-[10px] uppercase font-label-sm" id="navRole">[OFFLINE]</span></button>
+          <div class="text-[10px] text-outline-variant select-none px-space-xs">├───────────────────────────────────┤</div>
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-display"><span class="flex items-center gap-1.5"><span class="nav-cursor opacity-0">&gt;</span><span class="tracking-wider">02: CRT / DISPLAY</span></span><span class="text-[10px] font-label-sm text-outline" id="navTheme">[P1]</span></button>
+          <div class="text-[10px] text-outline-variant select-none px-space-xs">├───────────────────────────────────┤</div>
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-audio"><span class="flex items-center gap-1.5"><span class="nav-cursor opacity-0">&gt;</span><span class="tracking-wider">03: SYNTH / AUDIO</span></span><span class="text-[10px] font-label-sm text-outline" id="navAudio">[SFX]</span></button>
+          <div class="text-[10px] text-outline-variant select-none px-space-xs">├───────────────────────────────────┤</div>
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-controls"><span class="flex items-center gap-1.5"><span class="nav-cursor opacity-0">&gt;</span><span class="tracking-wider">04: CONTROLS</span></span><span class="text-[10px] font-label-sm text-outline">[WASD]</span></button>
+          <div class="text-[10px] text-outline-variant select-none px-space-xs">├───────────────────────────────────┤</div>
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-notifications"><span class="flex items-center gap-1.5"><span class="nav-cursor opacity-0">&gt;</span><span class="tracking-wider">05: COMMS / ALERTS</span></span><span class="text-[10px] font-label-sm text-outline">[ACT]</span></button>
+          <div class="text-[10px] text-outline-variant select-none px-space-xs">├───────────────────────────────────┤</div>
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-connected"><span class="flex items-center gap-1.5"><span class="nav-cursor opacity-0">&gt;</span><span class="tracking-wider">06: NETWORK LINK</span></span><span class="text-[10px] font-label-sm text-secondary-container" id="navLink">[NONE]</span></button>
+          <div class="text-[10px] text-outline-variant select-none px-space-xs">├───────────────────────────────────┤</div>
+          <button class="nav-btn w-full text-left px-space-sm py-1.5 text-on-surface-variant hover:bg-surface-container hover:text-primary transition-colors flex items-center justify-between" data-target="section-about"><span class="flex items-center gap-1.5"><span class="nav-cursor opacity-0">&gt;</span><span class="tracking-wider">07: ABOUT / DIAG</span></span><span class="text-[10px] font-label-sm text-outline" id="navVer">[v---]</span></button>
+        </nav>
+        <div class="text-[11px] text-outline-variant truncate select-none leading-none pt-space-xs">└───────────────────────────────────┘</div>
+      </div>
+
+      <div class="bg-surface-container-low p-space-md shadow-md space-y-space-sm font-body-sm">
+        <div class="flex items-center justify-between font-label-sm text-secondary pb-1"><span>// CHASSIS_TELEMETRY //</span><span class="w-2 h-2 rounded-none bg-primary-container animate-ping"></span></div>
+        <div class="space-y-1.5 text-[11px]">
+          <div class="flex justify-between items-center"><span class="text-on-surface-variant">BRIDGE:</span><span class="text-primary-container font-title-sm" id="teleBridge">---</span></div>
+          <div class="flex justify-between items-center"><span class="text-on-surface-variant">LINK:</span><span class="text-on-surface font-title-sm" id="teleLink">NONE</span></div>
+          <div class="flex justify-between items-center"><span class="text-on-surface-variant">ROOM:</span><span class="text-primary font-title-sm truncate max-w-[150px]" id="teleRoom">---</span></div>
+          <div class="flex justify-between items-center"><span class="text-on-surface-variant">PLAYERS:</span><span class="text-secondary-container font-title-sm" id="telePlayers">0/0</span></div>
+          <div class="flex justify-between items-center"><span class="text-on-surface-variant">PING:</span><span class="text-primary-fixed-dim font-title-sm" id="telePing">--</span></div>
+          <div class="flex justify-between items-center"><span class="text-on-surface-variant">UPTIME:</span><span class="text-on-surface font-title-sm" id="teleUp">--:--:--</span></div>
+        </div>
+        <div class="mt-space-sm p-space-xs bg-surface-container-lowest text-primary-container text-[10px] font-mono leading-tight">
+          <div class="text-on-surface-variant flex justify-between text-[9px] mb-1"><span>PING FLUX</span><span id="spark-max">--</span></div>
+          <div class="text-primary-container tracking-widest overflow-hidden whitespace-nowrap" id="spark">________________________</div>
+        </div>
+      </div>
+
+      <div class="bg-surface-container-lowest p-space-sm space-y-1">
+        <div class="text-[10px] text-on-surface-variant font-label-sm">// QUICK_COMMAND_INPUT //</div>
+        <div class="flex items-center gap-1 font-title-sm text-[12px] bg-surface-container px-2 py-1">
+          <span class="text-primary-container">]</span>
+          <input class="w-full bg-transparent text-primary focus:outline-none placeholder:text-outline font-body-sm uppercase" id="terminal-cmd" placeholder="HELP, STATUS, IPS..." type="text" autocomplete="off" spellcheck="false" style="user-select:text">
+          <button class="px-1.5 py-0.5 bg-primary-container text-surface-container-lowest text-[10px] font-title-sm hover:bg-primary transition-colors" id="cmd-submit-btn">EXE</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- RIGHT COLUMN: CONFIGURATION PANES -->
+    <div class="lg:col-span-8 xl:col-span-9 flex flex-col space-y-space-lg">
+
+      <!-- ================= 01: PROFILE ================= -->
+      <section class="bg-surface-container-low p-space-md sm:p-space-lg shadow-xl space-y-space-md" id="section-account">
+        <div class="flex flex-col space-y-1">
+          <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [01] USER_PROFILE &amp; IDENTITY ──────────────────────────────────────────────────┐</div>
+          <div class="flex items-center justify-between text-on-surface-variant text-[11px] px-1 font-label-md"><span>PAGE: 0x4000 (SEC_USER_ID)</span><span class="text-primary-container" id="sessionBadge">[ NO SESSION ]</span></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-space-md bg-surface-container-lowest p-space-md">
+          <div class="md:col-span-4 flex flex-col items-center justify-center p-space-sm bg-surface-container space-y-space-sm">
+            <div class="relative w-28 h-28 bg-surface-container-highest p-1 flex items-center justify-center overflow-hidden">
+              <div class="w-full h-full bg-surface-container-lowest flex items-center justify-center text-5xl" id="avatarBig">🎮</div>
+            </div>
+            <div class="text-center space-y-0.5">
+              <div class="text-primary-container font-title-md" id="handle">@player</div>
+              <div class="text-[10px] text-secondary font-label-sm flex items-center justify-center gap-1"><span class="w-1.5 h-1.5 bg-primary-container rounded-none"></span><span id="statusLine">[OFFLINE] STATUS: IDLE</span></div>
+            </div>
+            <button class="w-full py-1 text-center bg-surface-container-high hover:bg-primary-container hover:text-surface-container-lowest text-primary text-[11px] font-title-sm transition-colors" id="btn-change-avatar" title="Click: next avatar. Shift-click: previous.">[ ◄ CHANGE AVATAR ► ]</button>
+          </div>
+          <div class="md:col-span-8 flex flex-col justify-between space-y-space-sm">
+            <div class="space-y-space-sm">
+              <div class="bg-surface-container p-space-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2" id="nameRow"></div>
+              <div class="bg-surface-container p-space-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div class="flex items-center gap-2"><span class="text-on-surface-variant font-label-md text-[11px]">DATA FOLDER:</span><span class="text-on-surface font-title-sm text-[11px] break-all" id="dataDir" style="user-select:text">(ask the bridge)</span></div>
+              </div>
+              <div class="bg-surface-container p-space-sm text-[11px] text-on-surface-variant">Your name and avatar are shared with the room you join. They are stored in the folder above, on this computer only: there are no accounts, passwords or servers.</div>
+            </div>
+            <div class="pt-space-xs text-[10px] text-on-surface-variant flex flex-wrap items-center justify-between gap-2 font-mono">
+              <span>LOCAL PROFILE // SLOT 1 ACTIVE</span>
+              <span class="text-secondary-fixed" id="clientId" style="user-select:text">CLIENT_ID: ---</span>
+            </div>
+          </div>
+        </div>
+        <div class="p-space-sm bg-surface-container-lowest space-y-space-sm">
+          <div class="text-[11px] font-title-sm text-tertiary-fixed-dim flex items-center justify-between"><span>! WARNING: PRIVILEGED OPERATOR COMMANDS !</span><span class="text-[10px] text-on-surface-variant">[ NVRAM WRITE ACCESS ]</span></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-space-sm">
+            <button class="w-full text-left p-space-sm bg-surface-container hover:bg-surface-container-high transition-colors flex flex-col space-y-1 group" id="btn-leave">
+              <div class="flex items-center justify-between text-tertiary-fixed-dim group-hover:text-tertiary font-title-sm text-[12px]"><span id="leaveLabel">[ LEAVE SESSION ]</span><span>⏻</span></div>
+              <p class="text-[10px] text-on-surface-variant">Hang up on the current room (hosts close it for everyone) and go back to the boot loader.</p>
+            </button>
+            <button class="w-full text-left p-space-sm bg-error-container/20 hover:bg-error-container/40 transition-colors flex flex-col space-y-1 group" id="btn-purge">
+              <div class="flex items-center justify-between text-error group-hover:text-on-error-container font-title-sm text-[12px]"><span id="purgeLabel">[ RESET LOCAL DATA ]</span><span class="px-1 py-0.5 bg-error text-on-error font-label-sm text-[9px] uppercase">[ CONFIRMATION REQ ]</span></div>
+              <p class="text-[10px] text-on-surface-variant">Restore every setting on this page (name, network, display, audio, keys) to its default. Irreversible.</p>
+            </button>
+          </div>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <!-- ================= 02: DISPLAY & CRT ================= -->
+      <section class="bg-surface-container-low p-space-md sm:p-space-lg shadow-xl space-y-space-md" id="section-display">
+        <div class="flex flex-col space-y-1">
+          <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [02] CRT RASTER &amp; DISPLAY EMULATION ──────────────────────────────────────────┐</div>
+          <div class="flex items-center justify-between text-on-surface-variant text-[11px] px-1 font-label-md"><span>DRIVER: VGC_ANALOG_525</span><span class="text-secondary-fixed">[ ELECTRON GUN CALIBRATED ]</span></div>
+        </div>
+        <div class="space-y-space-sm bg-surface-container-lowest p-space-md">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between p-space-sm bg-surface-container gap-2">
+            <div>
+              <div class="font-title-sm text-primary flex items-center gap-2"><span>READABLE TEXT</span><span class="text-[10px] text-secondary font-label-sm">[ RECOMMENDED ]</span></div>
+              <p class="text-on-surface-variant text-[11px]">Larger small print, brighter dim labels, no flicker and lighter scanlines. Turn it off for the pure Stitch look.</p>
+            </div>
+            <div class="flex items-center gap-space-xs font-title-sm" data-toggle="readable"></div>
+          </div>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between p-space-sm bg-surface-container gap-2">
+            <div>
+              <div class="font-title-sm text-primary flex items-center gap-2"><span>CRT SCANLINE EFFECT (INTERLACED)</span><span class="text-[10px] text-outline font-label-sm">[ 60Hz RASTER ]</span></div>
+              <p class="text-on-surface-variant text-[11px]">Injects authentic horizontal shadow-mask lines over the viewport.</p>
+            </div>
+            <div class="flex items-center gap-space-xs font-title-sm" data-toggle="scan"></div>
+          </div>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between p-space-sm bg-surface-container gap-2">
+            <div>
+              <div class="font-title-sm text-primary flex items-center gap-2"><span>PHOSPHOR BLOOM &amp; FLICKER</span><span class="text-[10px] text-tertiary-fixed font-label-sm">[ CAUTION ]</span></div>
+              <p class="text-on-surface-variant text-[11px]">Subtle anode decay glow <span class="italic text-outline">(note: some operators find authentic 60hz phosphor flicker too authentic)</span>.</p>
+            </div>
+            <div class="flex items-center gap-space-xs font-title-sm" data-toggle="bloom"></div>
+          </div>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between p-space-sm bg-surface-container gap-2">
+            <div><div class="font-title-sm text-primary">PHOSPHOR COLOR EMULSION</div><p class="text-on-surface-variant text-[11px]">Shift cathode electron receptor chemistry in realtime.</p></div>
+            <div class="flex items-center gap-2 font-title-sm">
+              <button class="px-2 py-1 bg-surface-container-high hover:bg-primary-container hover:text-surface-container-lowest text-primary text-[12px]" id="theme-prev">&lt;</button>
+              <span class="min-w-[190px] text-center px-space-sm py-1 bg-surface-container-lowest text-primary-container font-title-sm text-[12px]" id="theme-label">[ P1 GREEN PHOSPHOR ]</span>
+              <button class="px-2 py-1 bg-surface-container-high hover:bg-primary-container hover:text-surface-container-lowest text-primary text-[12px]" id="theme-next">&gt;</button>
+            </div>
+          </div>
+          <div class="p-space-sm bg-surface-container space-y-2">
+            <div class="flex items-center justify-between text-[11px]"><span class="font-title-sm text-primary">SCANLINE OPACITY DENSITY</span><span class="font-title-sm text-primary-container" id="scan-val">70%</span></div>
+            <div class="flex items-center gap-2">
+              <div class="w-full bg-surface-container-lowest p-2 bar-slider text-primary-container hover:text-primary font-mono text-[13px] tracking-widest flex items-center" data-slider="scanOp"><span>[ <span id="scan-bar">██████████░░░░</span> ]</span></div>
+              <span class="text-[10px] text-outline whitespace-nowrap">[CLICK BAR TO SET]</span>
+            </div>
+          </div>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <!-- ================= 03: AUDIO ================= -->
+      <section class="bg-surface-container-low p-space-md sm:p-space-lg shadow-xl space-y-space-md" id="section-audio">
+        <div class="flex flex-col space-y-1">
+          <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [03] SOUND SYNTHESIS &amp; VOLUME ──────────────────────────────────────────────┐</div>
+          <div class="flex items-center justify-between text-on-surface-variant text-[11px] px-1 font-label-md"><span>DAC: WEBAUDIO OSCILLATOR BANK</span><span class="text-secondary">[ SAMPLE: ENGINE RATE 8-BIT STYLE ]</span></div>
+        </div>
+        <div class="space-y-space-sm bg-surface-container-lowest p-space-md">
+          <div class="p-space-sm bg-surface-container space-y-1">
+            <div class="flex items-center justify-between text-[11px]"><span class="font-title-sm text-primary">MASTER SFX HARDWARE VOLUME</span><span class="text-primary-container font-title-sm" id="sfx-val">80%</span></div>
+            <div class="bg-surface-container-lowest p-2 bar-slider text-primary-container hover:text-primary font-mono text-[13px] tracking-widest" data-slider="sfx">[ <span id="sfx-bar">████████████░░</span> ]</div>
+          </div>
+          <div class="p-space-sm bg-surface-container space-y-1">
+            <div class="flex items-center justify-between text-[11px]"><span class="font-title-sm text-primary">8-BIT CHIPTUNE / TRACKER BGM</span><span class="text-primary-container font-title-sm" id="bgm-val">OFF</span></div>
+            <div class="bg-surface-container-lowest p-2 bar-slider text-primary-container hover:text-primary font-mono text-[13px] tracking-widest" data-slider="bgm">[ <span id="bgm-bar">░░░░░░░░░░░░░░</span> ]</div>
+          </div>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between p-space-sm bg-surface-container gap-2">
+            <div><div class="font-title-sm text-primary">COPROCESSOR CHIP EMULATION</div><p class="text-on-surface-variant text-[11px]">Select the virtual sound expansion card: it changes the waveform of every UI beep.</p></div>
+            <div class="flex items-center gap-2"><button class="px-space-md py-1 bg-surface-container-high hover:bg-primary-container hover:text-surface-container-lowest text-primary text-[11px] font-title-sm transition-colors" id="btn-audio-chip" title="Click: next chip. Shift-click: previous.">[ ◄ MOCKINGBOARD II (STEREO) ► ]</button></div>
+          </div>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <!-- ================= 04: CONTROLS ================= -->
+      <section class="bg-surface-container-low p-space-md sm:p-space-lg shadow-xl space-y-space-md" id="section-controls">
+        <div class="flex flex-col space-y-1">
+          <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [04] INPUT MATRIX &amp; KEY BINDINGS ───────────────────────────────────────────┐</div>
+          <div class="flex items-center justify-between text-on-surface-variant text-[11px] px-1 font-label-md"><span>DRIVER: STANDARD_ASCII_KEYBOARD</span><span class="text-primary-container" id="keysMapped">[ 6 KEYS MAPPED ]</span></div>
+        </div>
+        <div class="bg-surface-container-lowest p-space-md space-y-space-md">
+          <div class="space-y-1 font-mono text-[12px]">
+            <div class="grid grid-cols-12 text-on-surface-variant font-label-sm pb-1 border-b border-outline-variant text-[10px]"><div class="col-span-7">ACTION FUNCTION</div><div class="col-span-5 text-right">ASSIGNED KEYSTROKE (CLICK TO REMAP)</div></div>
+            <div id="keyRows"></div>
+            <div class="grid grid-cols-12 items-center py-1.5 px-1">
+              <div class="col-span-7 text-primary flex items-center gap-1.5"><span class="text-primary-container">&gt;</span><span>QUICK SELECT CARTRIDGE</span></div>
+              <div class="col-span-5 text-right"><span class="px-2 py-0.5 bg-surface-container-high text-primary-fixed font-title-sm text-[11px]">[ 1 - 6 ] (FIXED)</span></div>
+            </div>
+          </div>
+          <div class="flex items-center justify-between pt-space-xs">
+            <span class="text-[11px] text-on-surface-variant font-label-sm" id="mapProfile">CUSTOM MAP PROFILE: USER_DEFAULT.MAP</span>
+            <button class="px-space-md py-1.5 bg-primary-container text-surface-container-lowest font-title-sm text-[12px] hover:bg-primary transition-colors" id="btn-remap">[ RESET DEFAULT MAP ]</button>
+          </div>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <!-- ================= 05: COMMS / ALERTS ================= -->
+      <section class="bg-surface-container-low p-space-md shadow-xl space-y-space-md" id="section-notifications">
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [05] NOTIFICATIONS &amp; BROADCAST ALERTS ──────────────────────────────────────┐</div>
+        <div class="bg-surface-container-lowest p-space-md space-y-space-sm text-[12px]">
+          <div class="flex items-center justify-between p-2 bg-surface-container"><span>BEEP WHEN A CHAT MESSAGE ARRIVES</span><button class="px-2 py-0.5 font-title-sm text-[11px]" data-alert="chat"></button></div>
+          <div class="flex items-center justify-between p-2 bg-surface-container"><span>BEEP WHEN A PLAYER JOINS OR LEAVES</span><button class="px-2 py-0.5 font-title-sm text-[11px]" data-alert="join"></button></div>
+          <div class="flex items-center justify-between p-2 bg-surface-container"><span>AUDIBLE CRT BELL (ALL TERMINAL BEEPS)</span><button class="px-2 py-0.5 font-title-sm text-[11px]" data-alert="beep"></button></div>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <!-- ================= 06: NETWORK LINK ================= -->
+      <section class="bg-surface-container-low p-space-md shadow-xl space-y-space-md" id="section-connected">
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [06] NETWORK LINK &amp; MODEM SETTINGS ─────────────────────────────────────────┐</div>
+        <div class="bg-surface-container-lowest p-space-md space-y-space-sm">
+          <div class="p-space-sm bg-surface-container text-[11px] space-y-1">
+            <div class="flex justify-between"><span class="text-on-surface-variant">THIS COMPUTER'S ADDRESSES:</span><span class="text-secondary-fixed" id="ipList" style="user-select:text">---</span></div>
+            <div class="flex justify-between"><span class="text-on-surface-variant">CURRENT LINK:</span><span class="text-primary-container" id="netNow">NONE</span></div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm" id="netForm"></div>
+          <p class="text-[10px] text-on-surface-variant">Changes are saved as you press Enter or leave a field. They are used the next time you host or join; the link dialog in the lobby also fills them in for you.</p>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <!-- ================= 07: ABOUT & DIAG ================= -->
+      <section class="bg-surface-container-low p-space-md shadow-xl space-y-space-md" id="section-about">
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">┌── [07] SYSTEM DIAGNOSTICS &amp; ROM REVISION ────────────────────────────────────┐</div>
+        <div class="bg-surface-container-lowest p-space-md space-y-2 text-[11px] font-mono">
+          <div class="text-primary-container font-title-sm">// G³-RETRO DISTRO MANIFEST //</div>
+          <p class="text-on-surface-variant">KERNEL: PYTHON <span id="aboutPy">---</span> BRIDGE // STDLIB ONLY</p>
+          <p class="text-on-surface-variant">NETWORK STACK: LAN TCP / MQTT ROOM CODE / RELAY / LORA UART</p>
+          <p class="text-on-surface-variant">DISPLAY: WEBGL CUBE + CSS PHOSPHOR RASTER</p>
+          <p class="text-secondary-fixed">FIRMWARE REVISION: <span id="aboutVer">---</span> // BRIDGE UPTIME <span id="aboutUp">--</span></p>
+          <div class="pt-2 flex flex-wrap gap-2">
+            <button class="px-2 py-1 bg-surface-container-high text-primary hover:bg-primary-container hover:text-surface-container-lowest text-[11px] font-title-sm transition-colors" id="btn-self-test">[ RUN LINK SELF-TEST ]</button>
+            <button class="px-2 py-1 bg-surface-container-high text-primary hover:bg-primary-container hover:text-surface-container-lowest text-[11px] font-title-sm transition-colors" id="btn-dump-log">[ DUMP ONLINE LOG ]</button>
+          </div>
+          <pre class="hidden mt-2 p-2 bg-surface-container text-[10px] text-on-surface-variant overflow-auto max-h-56 whitespace-pre-wrap" id="diagOut" style="user-select:text"></pre>
+        </div>
+        <div class="text-primary-container text-[12px] font-headline-sm select-none leading-none truncate">└───────────────────────────────────────────────────────────────────────────────────┘</div>
+      </section>
+
+      <div class="bg-surface-container-lowest p-space-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[12px] font-mono border-t border-outline-variant/30">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-primary-container font-title-sm">&gt;</span>
+          <span class="text-primary-fixed" id="tape">READY. SETTINGS AUTO-SAVE AS YOU CHANGE THEM.</span>
+          <span class="w-2 h-3.5 bg-primary-container inline-block animate-pulse"></span>
+        </div>
+        <div class="text-[10px] text-on-surface-variant font-label-sm whitespace-nowrap">FLOPPY TRK 18 // SEC 04</div>
+      </div>
+    </div>
+  </div>
+</div>
+</main>
+
+<footer class="w-full bg-surface-container-lowest border-t border-outline-variant py-space-sm font-label-sm">
+  <div class="w-full px-margin-desktop flex flex-col md:flex-row items-center justify-between gap-space-sm text-on-surface-variant">
+    <div class="flex items-center gap-space-sm"><span class="w-2 h-2 bg-primary-container rounded-none animate-ping"></span><span class="text-primary-container font-title-sm">CHASSIS:ONLINE</span><span class="text-outline-variant">//</span><span>65C02 CLK: 1.023 MHz</span><span class="text-outline-variant">//</span><span>PAGE ZERO: OK</span></div>
+    <div class="flex items-center gap-space-md font-body-sm"><span class="text-on-surface-variant">SYS.REV: <span id="footVer">---</span></span><span class="text-outline-variant">::</span><span class="text-secondary-fixed-dim">RASTER: 60Hz 525-LINE</span><span class="text-outline-variant">::</span><span>© 1984 G³-RETRO SYSTEMS</span></div>
+  </div>
+</footer>
+</div>
+
+<script src="js/core.js"></script>
+<script src="js/settings.js"></script>
+</body>
+</html>

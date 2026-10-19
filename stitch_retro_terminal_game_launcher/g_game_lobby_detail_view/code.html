@@ -1,0 +1,577 @@
+<!DOCTYPE html><html lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>G³ (G-Cubed) — Multi-Game Launcher &amp; Discord Permission Vault</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;family=Share+Tech+Mono&amp;family=VT323&amp;display=swap" rel="stylesheet">
+<style>
+    :root {
+      --phosphor-green: #33FF66;
+      --phosphor-dim: #156628;
+      --phosphor-bright: #66FF88;
+      --phosphor-amber: #FFB000;
+      --crt-bg: #050d06;
+      --crt-dark: #020703;
+    }
+
+    body {
+      background-color: var(--crt-dark);
+      color: var(--phosphor-green);
+      font-family: 'Share Tech Mono', 'VT323', monospace;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .font-pixel {
+      font-family: 'Press Start 2P', monospace;
+    }
+
+    .font-crt {
+      font-family: 'VT323', monospace;
+    }
+
+    /* CRT Glow and Text Bloom */
+    .glow-green {
+      text-shadow: 0 0 4px rgba(51, 255, 102, 0.8), 0 0 10px rgba(51, 255, 102, 0.4);
+    }
+    .glow-amber {
+      text-shadow: 0 0 4px rgba(255, 176, 0, 0.8), 0 0 10px rgba(255, 176, 0, 0.4);
+    }
+    .box-glow-green {
+      box-shadow: 0 0 8px rgba(51, 255, 102, 0.35), inset 0 0 8px rgba(51, 255, 102, 0.15);
+    }
+
+    /* CRT Scanlines Overlay */
+    .crt-overlay {
+      background: linear-gradient(
+        rgba(18, 16, 16, 0) 50%, 
+        rgba(0, 0, 0, 0.4) 50%
+      ), linear-gradient(
+        90deg,
+        rgba(255, 0, 0, 0.03),
+        rgba(0, 255, 0, 0.01),
+        rgba(0, 255, 0, 0.03)
+      );
+      background-size: 100% 4px, 6px 100%;
+      pointer-events: none;
+    }
+
+    /* Subtle CRT screen curvature vignette */
+    .crt-vignette {
+      background: radial-gradient(circle at center, transparent 65%, rgba(0, 10, 2, 0.85) 100%);
+      pointer-events: none;
+    }
+
+    /* CRT Screen Flicker */
+    @keyframes crtFlicker {
+      0% { opacity: 0.985; }
+      50% { opacity: 1; }
+      52% { opacity: 0.94; }
+      54% { opacity: 0.99; }
+      80% { opacity: 0.975; }
+      100% { opacity: 1; }
+    }
+    .crt-screen {
+      animation: crtFlicker 0.15s infinite;
+    }
+
+    /* Blinking Cursor */
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+    .cursor-blink {
+      animation: blink 0.9s infinite steps(1);
+    }
+
+    /* Laser Sweep Animation across preview */
+    @keyframes laserSweep {
+      0% { top: 0%; opacity: 0; }
+      15% { opacity: 0.8; }
+      85% { opacity: 0.8; }
+      100% { top: 100%; opacity: 0; }
+    }
+    .laser-line {
+      animation: laserSweep 4.5s ease-in-out infinite;
+    }
+
+    /* Custom Scrollbar for terminal directories */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020703;
+      border-left: 1px solid #156628;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #33FF66;
+    }
+  </style>
+<meta content="web_dashboard" name="shell-type"></head>
+<body class="min-h-screen bg-[#030904] text-[#33FF66] relative flex flex-col justify-between selection:bg-[#33FF66] selection:text-[#050d06]">
+<!-- CRT Visual Filters (Scanlines & Vignette) -->
+<div class="fixed inset-0 crt-overlay z-50 pointer-events-none"></div>
+<div class="fixed inset-0 crt-vignette z-40 pointer-events-none"></div>
+<!-- Main Monitor Container with subtle CRT screen flicker -->
+<div class="crt-screen relative z-10 flex flex-col min-h-screen w-full px-4 py-3 md:px-8 md:py-5 max-w-[1720px] mx-auto justify-between">
+<!-- ==================== TOP TERMINAL SYSTEM HEADER ==================== -->
+<header class="w-full border border-[#33FF66] bg-[#071208]/90 p-3 mb-4 box-glow-green relative">
+<div class="flex flex-wrap items-center justify-between gap-4 font-pixel text-xs md:text-sm">
+<!-- Left: Logo & System Status -->
+<div class="flex items-center gap-3">
+<div class="flex items-baseline">
+<span class="text-2xl md:text-3xl text-[#33FF66] glow-green font-pixel tracking-tighter">G</span>
+<span class="text-sm md:text-base text-[#FFB000] glow-amber font-pixel -translate-y-2">3</span>
+<span class="inline-block w-2.5 h-5 bg-[#33FF66] ml-2 cursor-blink align-middle"></span>
+</div>
+<span class="text-[#1e7e34] hidden sm:inline text-xs font-mono">|</span>
+<div class="text-[10px] md:text-xs text-[#22aa44] font-mono leading-tight hidden sm:block">
+          APPLE //e COMPATIBLE [64K RAM]<br>
+<span class="text-[#33FF66]">DISCORD_GATEWAY_v10: ACTIVE</span>
+</div>
+</div>
+<!-- Right: System Diagnostic Badges -->
+<div class="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs font-mono">
+<div class="border border-[#156628] px-2 py-1 bg-[#050d06]">
+<span class="text-[#156628]">[</span> <span class="text-[#22aa44]">PORT:</span> <span class="text-[#33FF66]">DISCORD.WSS</span> <span class="text-[#156628]">]</span>
+</div>
+<div class="border border-[#156628] px-2 py-1 bg-[#050d06]">
+<span class="text-[#156628]">[</span> <span class="text-[#22aa44]">BAUD:</span> <span class="text-[#33FF66]">115200</span> <span class="text-[#156628]">]</span>
+</div>
+<div class="border border-[#156628] px-2 py-1 bg-[#050d06] hidden md:block">
+<span class="text-[#156628]">[</span> <span class="text-[#22aa44]">STATUS:</span> <span class="text-[#FFB000] glow-amber">CARTRIDGE_LATCHED</span> <span class="text-[#156628]">]</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="border border-[#33FF66] hover:bg-[#33FF66] hover:text-[#050d06] px-2 py-1 font-mono transition-colors text-xs flex items-center gap-1 cursor-pointer" id="btnSound" title="Toggle Terminal Audio">
+<span class="">[ ♪ BEEP:ON ]</span>
+</button>
+</div>
+</div>
+</div>
+<!-- ASCII Sub-Bar Divider -->
+<div class="text-[#1e7e34] text-[10px] font-mono tracking-widest overflow-hidden whitespace-nowrap mt-2">
+      +------------------------------------------------------------------------------------------------------------------------------------------------------+
+    </div>
+</header>
+<!-- ==================== BOOT SEQUENCE HEADER ==================== -->
+<section class="w-full border border-[#33FF66] bg-[#050d06]/95 p-3 mb-4 box-glow-green relative font-mono text-xs">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-[#156628] pb-2 mb-2">
+<div class="flex items-center gap-2">
+<span class="text-[#FFB000] font-pixel text-[10px]">&gt;</span>
+<span class="font-pixel text-[11px] text-[#33FF66] glow-green tracking-wider uppercase">BOOT // INDIE_CARTRIDGE_SUBSYSTEM: ACTIVE</span>
+</div>
+<div class="text-[10px] text-[#22aa44] flex items-center gap-3">
+<span class="">MEM_BANK: 0x4000</span>
+<span class="">CHECKSUM: OK</span>
+</div>
+</div>
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[11px] md:text-xs">
+<div class="flex items-center gap-2 flex-wrap">
+<span class="text-[#22aa44]">&gt; LOADING SKETCH_RUMBLE.EXE...</span>
+<span class="text-[#33FF66] font-pixel text-[10px] glow-green tracking-tight">[████████████████░░░░] 74% COMPLETED</span>
+</div>
+<div class="text-[#22aa44] flex items-center gap-1">
+<span class="">&gt; STATUS: INTEGRITY_CHECK_PASS // MEMORY: 180 KB</span>
+<span class="inline-block w-2 h-3.5 bg-[#33FF66] cursor-blink align-middle ml-1"></span>
+</div>
+</div>
+</section>
+<!-- ==================== MAIN 2-COLUMN SPLIT ==================== -->
+<main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+<!-- LEFT COLUMN: 60% Width (7 Cols on desktop) -->
+<div class="lg:col-span-7 flex flex-col gap-4">
+<!-- Hero Artwork Box -->
+<section class="border border-[#33FF66] bg-[#050d06]/95 box-glow-green relative p-3 md:p-4">
+<!-- ASCII Header Tape -->
+<div class="flex justify-between items-center border-b border-[#156628] pb-2 mb-3 text-xs font-mono">
+<div class="flex items-center gap-1 text-[#33FF66] font-mono text-[11px] md:text-xs tracking-wider">
+<span class="">┌── GAME_CARTRIDGE_PREVIEW // FACET_F2 ──────────────────┐</span>
+</div>
+<div class="text-[10px] text-[#FFB000] hidden sm:block font-mono">
+            [SURFACE: DIRECT_2D]
+          </div>
+</div>
+<!-- The Unfiltered Indie Canvas Box with Laser Sweep -->
+<div class="relative w-full h-[400px] md:h-[420px] bg-[#020703] border border-[#156628] overflow-hidden flex items-center justify-center">
+<!-- Unfiltered Vibrant Modern Artwork -->
+<img alt="Sketch Heads / Sketch Rumble indie party artwork" class="w-full h-full object-cover select-none" src="https://lh3.googleusercontent.com/aida/AEtjO1Vgs4XIWFAUNAPya-xLdgw2nvk7f_8Ucjr6YXSVL4bBL-KEpm7AeiwUxktvl4thnzdOr6q5FIUnExF9WFRqWSXiXlH3wylq9u8mHEGtfiFU0ulTQemFrVW84gDZh9eaXdTrp061z0QzaW2_ncqwl_9Fbl2d6bgoyY-XUTm6jB4M0lHTt33_ZrMnuc0tdUkM1tmnvJRzPApmeIqCZ9CRC4tug_ucPlv6bKdqk8yyYuJ1C4XV0mJmT9Mjc9k">
+<!-- Periodic Thin Phosphor Green Laser Sweep Line -->
+<div class="absolute inset-x-0 h-[2px] bg-[#33FF66] shadow-[0_0_12px_#33FF66,0_0_24px_#33FF66] laser-line pointer-events-none"></div>
+<!-- Bottom Corner Surface Badges -->
+<div class="absolute top-2 left-2 bg-[#050d06]/85 border border-[#33FF66]/60 px-2 py-0.5 text-[9px] font-mono text-[#33FF66] flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 bg-[#33FF66] animate-pulse"></span>
+            LIVE_PREVIEW: OK
+          </div>
+<div class="absolute bottom-2 right-2 bg-[#050d06]/85 border border-[#156628] px-2 py-0.5 text-[9px] font-mono text-[#00eefc]">
+            ENGINE: DISCORD_ACTIVITY_SDK
+          </div>
+</div>
+<!-- Metadata Badges Under Art -->
+<div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center font-mono text-[11px]">
+<div class="border border-[#156628] bg-[#071509] py-1.5 px-2 text-[#22aa44]">
+            FORMAT: <span class="text-[#33FF66]">DISCORD_ACTIVITY_v2</span>
+</div>
+<div class="border border-[#156628] bg-[#071509] py-1.5 px-2 text-[#22aa44]">
+            RENDER: <span class="text-[#00eefc]">NATIVE_2D_VECTOR</span>
+</div>
+<div class="border border-[#156628] bg-[#071509] py-1.5 px-2 text-[#22aa44]">
+            HIGH_SCORE: <span class="text-[#FFB000] glow-amber font-bold">14,820 PTS</span>
+</div>
+</div>
+</section>
+<!-- Info Readout & Player Slots (directly below art) -->
+<section class="border border-[#33FF66] bg-[#050d06]/95 box-glow-green relative p-3 md:p-4 space-y-3 font-mono">
+<!-- ASCII Monospace Readout Lines -->
+<div class="border border-[#156628] bg-[#071208] p-2.5 text-[11px] md:text-xs leading-relaxed space-y-1">
+<div class="flex flex-wrap items-center justify-between">
+<span class="text-[#33FF66] font-bold">GAME: SKETCH RUMBLE</span>
+<span class="text-[#22aa44]">GENRE: MULTIPLAYER DOODLE GUESSING</span>
+</div>
+<div class="text-[#22aa44] flex flex-wrap items-center gap-1.5 pt-1">
+<span class="">MODE:</span>
+<span class="border border-[#156628] px-1 text-[#22aa44] hover:text-[#33FF66] cursor-pointer" onclick="playBeep(450, 0.05)">[ 2 PLAYERS ]</span>
+<span class="border border-[#156628] px-1 text-[#22aa44] hover:text-[#33FF66] cursor-pointer" onclick="playBeep(500, 0.05)">[ 4 PLAYERS ]</span>
+<span class="border border-[#33FF66] bg-[#33FF66] text-[#050d06] px-1.5 font-bold shadow-[0_0_6px_#33FF66]">[ 8 PLAYERS - ACTIVE ]</span>
+<span class="border border-[#156628] px-1 text-[#22aa44] hover:text-[#33FF66] cursor-pointer" onclick="playBeep(600, 0.05)">[ 16 MAX ]</span>
+</div>
+<div class="flex flex-wrap items-center justify-between text-[10px] md:text-[11px] text-[#22aa44] pt-1 border-t border-[#156628]/60">
+<span class="">PING: <span class="text-[#33FF66]">24ms</span> // NET_LOSS: <span class="text-[#33FF66]">0.00%</span></span>
+<span class="">CHANNEL: <span class="text-[#00eefc]">#DRAW-ROOM-9</span></span>
+</div>
+<div class="text-[10px] md:text-[11px] text-[#FFB000] font-pixel pt-0.5">
+            LOBBY: 3 / 8 PLAYERS CONNECTED
+          </div>
+</div>
+<!-- 8 Player Avatar Slot Row -->
+<div>
+<div class="text-[10px] font-mono text-[#22aa44] mb-1.5 flex justify-between">
+<span class="">ACTIVE_LOBBY_SLOTS [8-AXIS_PARTICIPANTS]:</span>
+<span class="text-[#33FF66]">STATUS: READY_CHECK</span>
+</div>
+<div class="grid grid-cols-4 sm:grid-cols-8 gap-2">
+<!-- Slot 1: Host -->
+<div class="border border-[#33FF66] bg-[#071509] p-1.5 flex flex-col items-center justify-center text-center shadow-[0_0_6px_rgba(51,255,102,0.3)] hover:bg-[#0c2410] transition-colors cursor-pointer" onclick="playBeep(880, 0.06)">
+<div class="w-8 h-8 rounded-full bg-[#33FF66] text-[#050d06] flex items-center justify-center font-pixel text-[10px] font-bold mb-1 shadow-[0_0_6px_#33ff66]">
+                👑
+              </div>
+<span class="text-[9px] font-mono text-[#33FF66] font-bold truncate w-full">@kaito</span>
+<span class="text-[8px] font-pixel text-[#FFB000] leading-tight mt-0.5">(HOST)</span>
+<span class="text-[7px] font-mono text-[#33FF66]">[READY]</span>
+</div>
+<!-- Slot 2 -->
+<div class="border border-[#33FF66] bg-[#071509] p-1.5 flex flex-col items-center justify-center text-center shadow-[0_0_6px_rgba(51,255,102,0.2)] hover:bg-[#0c2410] transition-colors cursor-pointer" onclick="playBeep(740, 0.06)">
+<div class="w-8 h-8 rounded-full bg-[#00eefc] text-[#050d06] flex items-center justify-center font-pixel text-[10px] font-bold mb-1 shadow-[0_0_6px_#00eefc]">
+                🎮
+              </div>
+<span class="text-[9px] font-mono text-[#33FF66] font-bold truncate w-full">@pixel_sam</span>
+<span class="text-[8px] font-mono text-[#22aa44] mt-0.5">GUILD</span>
+<span class="text-[7px] font-mono text-[#33FF66]">[READY]</span>
+</div>
+<!-- Slot 3 -->
+<div class="border border-[#33FF66] bg-[#071509] p-1.5 flex flex-col items-center justify-center text-center shadow-[0_0_6px_rgba(51,255,102,0.2)] hover:bg-[#0c2410] transition-colors cursor-pointer" onclick="playBeep(680, 0.06)">
+<div class="w-8 h-8 rounded-full bg-[#ffb2ba] text-[#670020] flex items-center justify-center font-pixel text-[10px] font-bold mb-1 shadow-[0_0_6px_#ffb2ba]">
+                🛡️
+              </div>
+<span class="text-[9px] font-mono text-[#33FF66] font-bold truncate w-full">@vixen_core</span>
+<span class="text-[8px] font-mono text-[#22aa44] mt-0.5">MOD</span>
+<span class="text-[7px] font-mono text-[#33FF66]">[READY]</span>
+</div>
+<!-- Slot 4: Empty -->
+<div class="border border-dashed border-[#156628] bg-[#020703] p-1.5 flex flex-col items-center justify-center text-center opacity-60">
+<div class="w-8 h-8 rounded-none border border-dashed border-[#156628] text-[#156628] flex items-center justify-center font-pixel text-xs mb-1">
+<span class="cursor-blink">_</span>
+</div>
+<span class="text-[8px] font-mono text-[#156628] truncate w-full">[EMPTY_SLOT]</span>
+<span class="text-[7px] font-mono text-[#156628] mt-1">OPEN</span>
+</div>
+<!-- Slot 5: Empty -->
+<div class="border border-dashed border-[#156628] bg-[#020703] p-1.5 flex flex-col items-center justify-center text-center opacity-50">
+<div class="w-8 h-8 rounded-none border border-dashed border-[#156628] text-[#156628] flex items-center justify-center font-pixel text-xs mb-1">
+<span class="cursor-blink">_</span>
+</div>
+<span class="text-[8px] font-mono text-[#156628] truncate w-full">[EMPTY_SLOT]</span>
+<span class="text-[7px] font-mono text-[#156628] mt-1">OPEN</span>
+</div>
+<!-- Slot 6: Empty -->
+<div class="border border-dashed border-[#156628] bg-[#020703] p-1.5 flex flex-col items-center justify-center text-center opacity-40">
+<div class="w-8 h-8 rounded-none border border-dashed border-[#156628] text-[#156628] flex items-center justify-center font-pixel text-xs mb-1">
+<span class="cursor-blink">_</span>
+</div>
+<span class="text-[8px] font-mono text-[#156628] truncate w-full">[EMPTY_SLOT]</span>
+<span class="text-[7px] font-mono text-[#156628] mt-1">OPEN</span>
+</div>
+<!-- Slot 7: Empty -->
+<div class="border border-dashed border-[#156628] bg-[#020703] p-1.5 flex flex-col items-center justify-center text-center opacity-30">
+<div class="w-8 h-8 rounded-none border border-dashed border-[#156628] text-[#156628] flex items-center justify-center font-pixel text-xs mb-1">
+<span class="cursor-blink">_</span>
+</div>
+<span class="text-[8px] font-mono text-[#156628] truncate w-full">[EMPTY_SLOT]</span>
+<span class="text-[7px] font-mono text-[#156628] mt-1">OPEN</span>
+</div>
+<!-- Slot 8: Empty -->
+<div class="border border-dashed border-[#156628] bg-[#020703] p-1.5 flex flex-col items-center justify-center text-center opacity-30">
+<div class="w-8 h-8 rounded-none border border-dashed border-[#156628] text-[#156628] flex items-center justify-center font-pixel text-xs mb-1">
+<span class="cursor-blink">_</span>
+</div>
+<span class="text-[8px] font-mono text-[#156628] truncate w-full">[EMPTY_SLOT]</span>
+<span class="text-[7px] font-mono text-[#156628] mt-1">OPEN</span>
+</div>
+</div>
+</div>
+<!-- Primary Action & Secondary Actions -->
+<div class="pt-2 space-y-2.5">
+<!-- Big Glowing Block Button -->
+<button class="w-full border-2 border-[#33FF66] bg-[#050d06] hover:bg-[#33FF66] hover:text-[#050d06] font-pixel text-sm md:text-base py-3.5 px-4 text-center tracking-wider transition-all duration-150 box-glow-green active:scale-[0.99] flex items-center justify-center gap-2 group cursor-pointer" id="btnLaunchPrimary" onclick="triggerLobbyLaunch()"><span class="text-base group-hover:text-[#050d06] group-hover:scale-120 transition-transform">▶</span>
+<span class="tracking-widest font-bold">[ PRESS TO ENTER GAME ]</span></button>
+<!-- Secondary Actions Row -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px] md:text-xs">
+<button class="border border-[#156628] hover:border-[#33FF66] hover:bg-[#33FF66] hover:text-[#050d06] bg-[#071208] text-[#33FF66] py-2 px-2 text-center transition-colors font-mono cursor-pointer" onclick="playBeep(520, 0.08); alert('Discord invite link generated and copied to clipboard: discord.gg/g3-sketch-882');">
+              [ + INVITE DISCORD FRIENDS ]
+            </button>
+<button class="border border-[#156628] hover:border-[#00eefc] hover:bg-[#00eefc] hover:text-[#050d06] bg-[#071208] text-[#00eefc] py-2 px-2 text-center transition-colors font-mono cursor-pointer" onclick="playBeep(640, 0.08); alert('RULEBOOK // SKETCH RUMBLE:\n1. 1 player draws the secret prompt.\n2. Up to 15 peers guess words in real-time.\n3. Fastest correct guesses win maximum points!');">
+              [ ? VIEW RULES ]
+            </button>
+<button class="border border-[#156628] hover:border-[#FFB000] hover:bg-[#FFB000] hover:text-[#050d06] bg-[#071208] text-[#FFB000] py-2 px-2 text-center transition-colors font-mono cursor-pointer" onclick="playBeep(420, 0.08); window.location.reload();">
+              [ &lt; BACK TO CUBE ROTATOR ]
+            </button>
+</div>
+</div>
+</section>
+</div>
+<!-- RIGHT COLUMN: 40% Width (5 Cols on desktop) -->
+<aside class="lg:col-span-5 flex flex-col border border-[#33FF66] bg-[#050d06]/95 box-glow-green p-3 md:p-4 justify-between h-full min-h-[580px]">
+<div>
+<!-- Catalog Header -->
+<div class="flex items-center justify-between border-b border-[#33FF66] pb-2 mb-3 font-mono">
+<div class="font-pixel text-[11px] md:text-xs text-[#33FF66] flex items-center gap-1.5">
+<span class="text-[#FFB000]">►</span>
+<span class="">CATALOG: //G3/LOGS/LEADERBOARD.TXT</span>
+</div>
+<span class="text-[9px] font-pixel text-[#FFB000] bg-[#156628]/30 px-1.5 py-0.5 border border-[#156628]">[6 ENTRIES FOUND]</span>
+</div>
+<!-- Table Column Sub-Header -->
+<div class="grid grid-cols-12 text-[10px] font-mono text-[#22aa44] border-b border-[#156628] pb-1 mb-2 px-1">
+<span class="col-span-1">RANK</span>
+<span class="col-span-4">PLAYER_HANDLE</span>
+<span class="col-span-3 text-right">SCORE</span>
+<span class="col-span-4 text-right">BADGE / STAT</span>
+</div>
+<!-- Ranked Player List with animated moving scanline -->
+<div class="space-y-1.5 relative overflow-hidden pr-1 font-mono">
+<!-- Animated faint scanline moving through text -->
+<div class="absolute inset-x-0 h-8 bg-[#33FF66]/5 pointer-events-none animate-[pulse_3s_infinite]"></div>
+<!-- Entry #1 -->
+<div class="border border-[#33FF66] bg-[#071509] p-2 hover:bg-[#0c2410] transition-colors cursor-pointer group flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-pixel text-[#FFB000]">#1</span>
+<div>
+<div class="text-xs font-mono text-[#33FF66] group-hover:text-[#66FF88] font-bold">@doodle_wizard</div>
+<div class="text-[8px] font-pixel text-[#FFB000] mt-0.5">[MASTER ARTIST]</div>
+</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-[#33FF66] glow-green">14,820 PTS</div>
+<div class="text-[8px] font-pixel text-[#33FF66] mt-0.5">[ONLINE]</div>
+</div>
+</div>
+<!-- Entry #2 -->
+<div class="border border-[#156628] hover:border-[#33FF66] bg-[#050d06] p-2 hover:bg-[#0c2410] transition-colors cursor-pointer group flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-pixel text-[#22aa44]">#2</span>
+<div>
+<div class="text-xs font-mono text-[#33FF66] group-hover:text-[#66FF88] font-bold">@cyber_puffer</div>
+<div class="text-[8px] font-pixel text-[#00eefc] mt-0.5">[SPEED SKETCHER]</div>
+</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-[#33FF66]">12,450 PTS</div>
+<div class="text-[8px] font-pixel text-[#33FF66] mt-0.5">[ONLINE]</div>
+</div>
+</div>
+<!-- Entry #3 -->
+<div class="border border-[#156628] hover:border-[#33FF66] bg-[#050d06] p-2 hover:bg-[#0c2410] transition-colors cursor-pointer group flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-pixel text-[#22aa44]">#3</span>
+<div>
+<div class="text-xs font-mono text-[#33FF66] group-hover:text-[#66FF88] font-bold">@bluff_master</div>
+<div class="text-[8px] font-pixel text-[#ffb2ba] mt-0.5">[EXPRESS GUESSER]</div>
+</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-[#33FF66]">10,190 PTS</div>
+<div class="text-[8px] font-pixel text-[#FFB000] mt-0.5">[IN GAME]</div>
+</div>
+</div>
+<!-- Entry #4 (Active User) -->
+<div class="border border-[#33FF66] bg-[#0c2410] p-2 transition-colors cursor-pointer group flex items-center justify-between shadow-[0_0_8px_rgba(51,255,102,0.25)]">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-pixel text-[#33FF66]">#4</span>
+<div>
+<div class="text-xs font-mono text-[#33FF66] font-bold flex items-center gap-1">
+<span class="">&gt; @kaito</span>
+<span class="text-[8px] bg-[#33FF66] text-[#050d06] px-1 font-bold">YOU</span>
+</div>
+<div class="text-[8px] font-pixel text-[#33FF66] mt-0.5">[HOST]</div>
+</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-[#33FF66] glow-green">9,420 PTS</div>
+<div class="text-[8px] font-pixel text-[#33FF66] mt-0.5">[READY]</div>
+</div>
+</div>
+<!-- Entry #5 -->
+<div class="border border-[#156628] hover:border-[#33FF66] bg-[#050d06] p-2 hover:bg-[#0c2410] transition-colors cursor-pointer group flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-pixel text-[#22aa44]">#5</span>
+<div>
+<div class="text-xs font-mono text-[#33FF66] group-hover:text-[#66FF88] font-bold">@vixen_core</div>
+<div class="text-[8px] font-pixel text-[#00dbe9] mt-0.5">[MODERATOR]</div>
+</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-[#33FF66]">8,760 PTS</div>
+<div class="text-[8px] font-pixel text-[#33FF66] mt-0.5">[READY]</div>
+</div>
+</div>
+<!-- Entry #6 -->
+<div class="border border-[#156628] hover:border-[#33FF66] bg-[#050d06] p-2 hover:bg-[#0c2410] transition-colors cursor-pointer group flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-pixel text-[#22aa44]">#6</span>
+<div>
+<div class="text-xs font-mono text-[#33FF66] group-hover:text-[#66FF88] font-bold">@pixel_sam</div>
+<div class="text-[8px] font-pixel text-[#22aa44] mt-0.5">[ACTIVE GUESSER]</div>
+</div>
+</div>
+<div class="text-right">
+<div class="text-xs font-bold text-[#33FF66]">7,210 PTS</div>
+<div class="text-[8px] font-pixel text-[#33FF66] mt-0.5">[READY]</div>
+</div>
+</div>
+</div>
+<!-- Terminal File Stats Readout -->
+<div class="mt-4 border-t border-[#156628] pt-2 text-[10px] font-mono text-[#22aa44] flex justify-between">
+<span class="">CATALOG_SIZE: 2,480 BYTES</span>
+<span class="">SHARDS: 4 GUILDS SYNCED</span>
+</div>
+</div>
+<!-- Terminal System Prompt Area at bottom of column -->
+<div class="mt-4 pt-3 border-t border-[#156628] font-mono text-[10px] text-[#22aa44] space-y-1.5">
+<div class="flex justify-between items-center">
+<span class="">DISCORD_VOICE_BRIDGE: <span class="text-[#33FF66]">CONNECTED</span></span>
+<span class="text-[#00eefc]">SESSION_TOKEN: 0x98F2_SKETCH</span>
+</div>
+<div class="text-[#156628] leading-tight">
+          &gt; DISCORD_WSS: 3 OF 8 PEERS COMMITTED TO CANVAS PIPELINE
+        </div>
+<div class="text-[#FFB000] flex items-center justify-between pt-0.5">
+<span class="">&gt; READY TO LAUNCH WHEN ALL PLAYERS ARE FLAGGED [READY]...</span>
+<span class="text-[#33FF66] cursor-blink">■</span>
+</div>
+</div>
+</aside>
+</main>
+<!-- ==================== BOTTOM STATUS CHASSIS FOOTER ==================== -->
+<footer class="mt-4 border border-[#33FF66] bg-[#071208]/90 p-3 box-glow-green">
+<div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+<!-- Hardware Chassis Label -->
+<div class="flex items-center gap-3">
+<div class="text-[10px] font-pixel text-[#33FF66]">
+          CHASSIS // CUBE_FACETS:
+        </div>
+<!-- Facet Indicators matching SCREEN_2 & SCREEN_4 -->
+<div class="flex items-center gap-1.5 font-pixel text-[9px]">
+<span class="border border-[#156628] px-1.5 py-0.5 text-[#22aa44] cursor-pointer hover:border-[#33FF66]" onclick="playBeep(400, 0.05)">[F1]</span>
+<span class="border border-[#33FF66] bg-[#33FF66] text-[#050d06] px-1.5 py-0.5 font-bold shadow-[0_0_8px_#33ff66] cursor-pointer">[■ F2 ACTIVE]</span>
+<span class="border border-[#156628] px-1.5 py-0.5 text-[#22aa44] cursor-pointer hover:border-[#33FF66]" onclick="playBeep(500, 0.05)">[F3]</span>
+<span class="border border-[#156628] px-1.5 py-0.5 text-[#22aa44] cursor-pointer hover:border-[#33FF66]" onclick="playBeep(550, 0.05)">[F4]</span>
+<span class="border border-[#156628] px-1.5 py-0.5 text-[#22aa44] cursor-pointer hover:border-[#33FF66]" onclick="playBeep(600, 0.05)">[F5]</span>
+<span class="border border-[#156628] px-1.5 py-0.5 text-[#22aa44] cursor-pointer hover:border-[#33FF66]" onclick="playBeep(650, 0.05)">[F6]</span>
+</div>
+</div>
+<!-- Terminal System Status Readout -->
+<div class="text-[10px] font-mono text-[#22aa44] flex items-center gap-2">
+<span class="">DISCORD_BOT_STATUS: <span class="text-[#33FF66]">ACTIVE</span></span>
+<span class="text-[#1e7e34]">|</span>
+<span class="">ROM_VER: 1983.4_DISC</span>
+<span class="text-[#1e7e34]">|</span>
+<span class="text-[#33FF66]">CONNECTION: STABLE</span>
+</div>
+</div>
+</footer>
+</div>
+<!-- Audio Synthesizer (Retro 8-bit Apple II BEEP) using Web Audio API -->
+<script>
+  let audioCtx = null;
+  let soundEnabled = true;
+
+  function playBeep(freq = 600, duration = 0.08, type = 'square') {
+    if (!soundEnabled) return;
+    try {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {
+      console.warn('Audio playback error', e);
+    }
+  }
+
+  // Toggle Terminal Audio Button
+  document.getElementById('btnSound').addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    document.getElementById('btnSound').innerHTML = soundEnabled ? '[ ♪ BEEP:ON ]' : '[ ♪ BEEP:OFF ]';
+    if (soundEnabled) playBeep(880, 0.1);
+  });
+
+  // Launch Game Sequence with phosphor flash simulation
+  function triggerLobbyLaunch() {
+    playBeep(980, 0.15, 'sawtooth');
+    setTimeout(() => playBeep(1200, 0.18, 'square'), 100);
+
+    const btn = document.getElementById('btnLaunchPrimary');
+    if (!btn) return;
+    const originalText = btn.innerHTML;
+
+    btn.classList.add('bg-[#33FF66]', 'text-[#050d06]');
+    btn.innerHTML = `<span class="tracking-widest font-bold font-pixel text-xs md:text-sm">EXECUTING DISCORD SKETCH_RUMBLE.EXE...</span>`;
+
+    // Screen phosphor flash bloom
+    const flash = document.createElement('div');
+    flash.className = "fixed inset-0 bg-[#33FF66]/30 z-50 pointer-events-none transition-opacity duration-300";
+    document.body.appendChild(flash);
+    setTimeout(() => {
+      flash.style.opacity = '0';
+      setTimeout(() => flash.remove(), 300);
+    }, 120);
+
+    setTimeout(() => {
+      btn.classList.remove('bg-[#33FF66]', 'text-[#050d06]');
+      btn.innerHTML = originalText;
+      playBeep(520, 0.1);
+    }, 2000);
+  }
+
+  // Keyboard Hotkey Listener: Enter triggers Launch
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      triggerLobbyLaunch();
+    }
+  });
+</script>
+
+
+</body></html>
