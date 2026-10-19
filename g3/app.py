@@ -371,6 +371,18 @@ class App:
         s = self.settings
         tr = m.get("transport")
         code, addr, device = "", "", ""
+        if tr == "solo":                                   # testing: a room with nobody else in it, no network at all
+            game = m.get("game") if m.get("game") in hubmod.GAMES else s["game"]
+            s["game"] = game
+            self._write(s)
+            hub = hubmod.Hub(s["name"], "solo", "SOLO", game, 2, 2, s["avatar"], solo=True)
+            self.room = hub
+            self.chat.clear()
+            self.syslog.clear()
+            hub.start()                                    # straight into the game
+            self._set_status("room", "solo test")
+            self._broadcast({"t": "settings", "settings": self.public_settings()})
+            return True, ""
         if tr == "online":
             from game import online as ol
             code = clean_code(m.get("code")) or ol.new_room_code()

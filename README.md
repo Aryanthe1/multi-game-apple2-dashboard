@@ -23,24 +23,16 @@ has its own data folder, so it has its own operator account (add `--no-login` to
 
 Everything sits behind a login. **Register** an operator (callsign + passcode, stored
 salted and hashed in `~/.g3/auth.json`; your callsign becomes your player name), then
-sit **the Trial of the Rising Sun**: 36 questions over six scrolls on Japan, the Land
-of the Rising Sun (myth, symbols, history, warriors, folklore, arts), some single
-choice, some "pick all that apply", some typed. Your score sets your clearance:
+answer **the Riddle of the Rising Sun**: one riddle describing a gorgeous man. Answer
+with his name, **Daivansh** or **Devonut** (any case; a trailing "san" is fine), and the
+sun rises: clearance level 1 (DAYBREAK). Any other answer keeps the gate shut for 15 s.
 
-| score | rank | level |
-| --- | --- | --- |
-| under 50% | Ronin | 0: no entry, trial closed for 60 s |
-| 50% | Ashigaru | 1 |
-| 65% | Samurai | 2 |
-| 80% | Daimyo | 3 |
-| 93% | Shogun | 4 |
-
-The question bank and grading live on the server (`g3/lore.py`, `g3/auth.py`), so the
-page never sees the answers. A later, worse trial never takes a rank away. Five wrong
-passcodes lock a callsign for 30 s. The rank shows bottom-left on every page (with
-log out). The clearance level isn't used to gate anything yet beyond getting in.
-`python -m g3 --no-login` (or `G3_NOLOGIN=1`) skips all of this for development. To add
-or change questions, edit `BANK` in `g3/lore.py`.
+The riddle and the check live on the server (`g3/lore.py`, `g3/auth.py`), so the page
+never sees the answer. A later wrong guess never takes a clearance away. Five wrong
+passcodes lock a callsign for 30 s. The clearance shows bottom-left on every page (with
+log out) and isn't used to gate anything yet beyond getting in.
+`python -m g3 --no-login` (or `G3_NOLOGIN=1`) skips all of this for development. To change
+the riddle or the accepted names, edit `RIDDLE` and `ANSWERS` in `g3/lore.py`.
 
 ## Using it
 
@@ -54,7 +46,7 @@ or change questions, edit `BANK` in `g3/lore.py`.
 Long-distance options are in [LONG_DISTANCE_PLAY.md](LONG_DISTANCE_PLAY.md).
 
 Each game has its own folder in [g3/web/games/](g3/web/games/README.md). **Bobble
-League** (slime soccer, 2-8 players) is playable: see its
+League** (top-down tactics, teams of 6 shared between the players, 2-8 players) is playable: see its
 [README](g3/web/games/bobble_league/README.md) for the rules and controls. The other
 five are placeholders: starting one shows a "game module not installed" screen with a
 live test of the room's game channel (see below).
@@ -92,7 +84,7 @@ browser tabs  <-- WebSocket (loopback only) -->  g3/server.py + g3/app.py
 ## Tests
 
     python -m game.tests    # multiplayer: framing, rooms, relay, room code, LoRa
-    python -m g3.tests      # bridge: security guards, two bridges in one room, login and the trial
+    python -m g3.tests      # bridge: security guards, two bridges in one room, login and the riddle
     node g3/web/games/bobble_league/sim.test.js   # Bobble League physics and rules (needs Node)
 
 Settings are stored in `~/.g3/settings.json` (`--data DIR` to change it).

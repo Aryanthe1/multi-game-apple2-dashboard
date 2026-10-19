@@ -61,6 +61,7 @@
     set('scan-val', `${p.scanOp}%`); set('scan-bar', G3.bar(p.scanOp));
     set('sfx-val', `${p.sfx}%`); set('sfx-bar', G3.bar(p.sfx));
     set('bgm-val', p.bgm ? `${p.bgm}%` : 'OFF'); set('bgm-bar', G3.bar(p.bgm));
+    set('music-val', p.music ? `${p.music}%` : 'OFF'); set('music-bar', G3.bar(p.music));
     set('navAudio', p.beep ? `[${p.sfx}%]` : '[MUTE]');
     set('btn-audio-chip', `[ ◄ ${G3.CHIPS[p.chip].name} ► ]`);
     $$('[data-alert]').forEach((b) => {

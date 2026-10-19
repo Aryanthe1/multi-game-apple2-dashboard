@@ -5,9 +5,9 @@
   const { $, $$, esc } = G3;
 
   const BLURBS = {
-    bobble_league: ['Two teams of slimes and one glowing ball.', 'Bounce, head and slide the ball into the other goal.', 'Most goals when the clock runs out wins.'],
-    sketch_rumble: ['1 player draws the secret prompt.', 'Everyone else guesses the word in real time.', 'The fastest correct guesses win the most points.'],
-    kart_odyssey: ['Cosmic grand-prix racing for up to 4 puffers.', 'Drift through nebula tracks, grab boosts, take the cup.'],
+    bobble_league: ['Top-down tactics: two teams of 6 bobbles, shared out between the players, and one glowing ball.', 'Both teams plan a flick for each bobble in secret, lock in, and every flick happens at once.', 'First to 3 goals wins, or the leader when the clock runs out.'],
+    rising_rush: ['Boss rush: a band of ninjas against towering bosses.', 'Team up, time your strikes and bring each boss down.'],
+    battle_tide: ['Naval tactics for up to 4 captains.', 'Position battleships, destroyers and subs, trade broadsides, sink the enemy fleet.'],
     letter_league: ['A co-op word puzzle on one shared board.', 'Longer words and combos score for the whole team.'],
     liars_bar: ['Deck bluffing and dice for 2-4 players.', 'Play cards face-down, call a bluff, outlast the table.'],
     whos_away: ['A co-op mystery escape room in an empty mansion.', 'Search rooms, combine clues and crack the lock together.'],
@@ -110,7 +110,8 @@
 
   function canStart(r, g) {
     if (r.link !== 'up') return [false, 'THE LINK IS STILL OPENING'];
-    if (r.slots.length < g.min) return [false, `${g.exe} NEEDS ${g.min}+ PLAYERS`];
+    const need = r.solo ? 1 : g.min;
+    if (r.slots.length < need) return [false, `${g.exe} NEEDS ${need}+ PLAYERS`];
     const wait = r.slots.filter((s) => s.role !== 'HOST' && !s.ready).map((s) => '@' + s.n);
     if (wait.length) return [false, 'WAITING FOR: ' + wait.join(', ')];
     return [true, 'ALL PLAYERS READY'];
@@ -134,7 +135,7 @@
   function lobbyHTML(r, g) {
     const me = G3.me(), [ok, why] = canStart(r, g);
     const [invLabel, invValue, invHow] = joinInfo(r);
-    const invite = r.host && r.slots.length < r.max ? `<div class="border border-[#FFB000] bg-[#071208] p-2.5 flex flex-col md:flex-row md:items-center justify-between gap-2">
+    const invite = r.host && !r.solo && r.slots.length < r.max ? `<div class="border border-[#FFB000] bg-[#071208] p-2.5 flex flex-col md:flex-row md:items-center justify-between gap-2">
         <div class="min-w-0"><div class="text-[10px] text-[#FFB000] font-bold">&gt; INVITE FRIENDS // ${invLabel}</div>
           <div class="text-base md:text-lg text-[#00eefc] font-bold break-all selectable">${esc(invValue)}</div>
           <div class="text-[11px] text-[#22aa44]">${esc(invHow)}</div></div>
@@ -144,6 +145,7 @@
       ? bigBtn('data-act="start"', '[ PRESS TO ENTER GAME ]', `> ${why}`, !ok)
       : bigBtn('data-act="ready"', me && me.ready ? '[ ✔ READY - PRESS TO UNREADY ]' : '[ PRESS WHEN READY ]', me && me.ready ? '> WAITING FOR THE HOST TO START' : '> THE HOST STARTS WHEN EVERYONE IS READY');
     return `${r.link !== 'up' ? `<div class="border border-[#FFB000] text-[#FFB000] bg-[#071208] p-2 text-[11px]">&gt; LINK OPENING: ${esc(G3.state.status.msg || 'please wait')}</div>` : ''}
+      ${r.solo ? '<div class="border border-[#FFB000] text-[#FFB000] bg-[#071208] p-2 text-[11px]">&gt; SOLO TEST ROOM: just you, no network, nobody can join. Close the room to leave.</div>' : ''}
       ${invite}${readoutHTML(r, g)}
       <div><div class="text-[10px] font-mono text-[#22aa44] mb-1.5 flex justify-between"><span>ACTIVE_LOBBY_SLOTS [${r.max}-AXIS_PARTICIPANTS]:</span><span class="text-[#33FF66]">STATUS: ${ok ? 'ALL_READY' : 'READY_CHECK'}</span></div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${slotsHTML(r)}</div></div>
@@ -216,6 +218,7 @@
       </div>
       <div class="pt-1 space-y-2.5">
         ${bigBtn('data-act="go"', host ? '[ OPEN ROOM ]' : '[ JOIN ROOM ]', host ? '> YOU HOST; FRIENDS CONNECT TO YOU' : '> CONNECT TO A FRIEND\'S ROOM')}
+        ${small('data-act="solo"', '[ ► SOLO TEST: PLAY ALONE, NO NETWORK ]', '#FFB000')}
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] md:text-xs">
           ${small('data-act="rules"', '[ ? VIEW RULES ]', '#00eefc')}
           <a href="index.html" class="border border-[#156628] hover:border-[#FFB000] hover:bg-[#FFB000] hover:text-[#050d06] bg-[#071208] text-[#FFB000] py-2 px-2 text-center transition-colors">[ &lt; BACK TO CUBE ROTATOR ]</a>
@@ -370,6 +373,7 @@
         break;
       case 'newcode': ui.code = G3.newRoomCode(); renderPanel(); break;
       case 'go': go(); break;
+      case 'solo': G3.send('host', { transport: 'solo', game: gid() }); break;
       case 'cancel': G3.send('cancel'); break;
       case 'search': G3.send('search'); break;
       case 'joinhost': G3.send('join', { transport: 'lan', ip: el.dataset.ip }); break;
@@ -401,6 +405,7 @@
         ui.game = want;
         G3.send('select_game', { id: want });
         history.replaceState(null, '', location.pathname);
+        if (params.get('solo') && !m.room) G3.send('host', { transport: 'solo', game: want });     // the launcher's SOLO TEST button
       }
       ready = true;
     }

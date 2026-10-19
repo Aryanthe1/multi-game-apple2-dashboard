@@ -2,7 +2,7 @@
 .bl { display: flex; flex-direction: column; gap: 0.5rem; font-family: 'Share Tech Mono', monospace; }
 .bl-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 11px; color: #22aa44; }
 .bl-stage { position: relative; border: 1px solid #33FF66; background: #02040a; line-height: 0; }
-.bl-stage canvas { display: block; width: 100%; aspect-ratio: 1420 / 710; }
+.bl-stage canvas { display: block; width: 100%; aspect-ratio: 1220 / 772; touch-action: none; }
 .bl-over {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; line-height: 1.3; text-align: center; background: rgba(2, 4, 16, 0.74); padding: 12px;
@@ -20,5 +20,55 @@
 .bl button.bl-danger { color: #FF3366; }
 .bl button.bl-danger:hover { background: #FF3366; color: #050d06; border-color: #FF3366; }
 .bl button.bl-big { border: 2px solid #33FF66; padding: 10px 22px; font-size: 14px; }
-.bl:fullscreen { background: #030904; justify-content: center; padding: 8px; }
-.bl:fullscreen .bl-stage canvas { width: min(100%, calc((100vh - 90px) * 1420 / 710)); margin: 0 auto; }
+/* The game always fills the window (and goes real fullscreen when the browser lets it): the pitch is as big as fits. */
+html.bl-open, html.bl-open body { overflow: hidden; }
+.bl.bl-full { position: fixed; inset: 0; z-index: 70; background: #030904; align-items: center; justify-content: center; padding: 8px; gap: 0.4rem; }
+.bl.bl-full .bl-top, .bl.bl-full .bl-bar { width: min(100vw - 16px, calc((100vh - 96px) * 1220 / 772)); }
+.bl.bl-full .bl-stage { width: fit-content; }
+.bl.bl-full .bl-stage canvas { width: min(100vw - 18px, calc((100vh - 96px) * 1220 / 772)); }
+
+/* the game menu */
+.bl-menu { background: rgba(2, 4, 16, 0.8); gap: clamp(8px, 2vh, 18px); }
+.bl-title { font-family: 'Press Start 2P', monospace; font-size: clamp(16px, 3.4vw, 40px); color: #ffd43b; text-shadow: 0 0 18px rgba(255, 212, 59, .7), 3px 3px 0 #1b0f4d; letter-spacing: .04em; }
+.bl-modes { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; width: 100%; }
+.bl button.bl-mode, .bl .bl-mode.soon {
+  width: min(300px, 44%); min-width: 190px; text-align: left; padding: 12px 14px; border: 2px solid #33FF66; background: #071208; color: #33FF66; line-height: 1.35;
+}
+.bl .bl-mode b { display: block; font-family: 'Press Start 2P', monospace; font-weight: normal; font-size: clamp(11px, 1.5vw, 16px); margin-bottom: 8px; }
+.bl .bl-mode span { display: block; font-size: 12px; color: #6fdc8a; }
+.bl button.bl-mode.sel, .bl button.bl-mode:hover { background: #0c2410; color: #ffd43b; border-color: #ffd43b; box-shadow: 0 0 16px rgba(255, 212, 59, .45); }
+.bl button.bl-mode.sel span, .bl button.bl-mode:hover span { color: #e9dca0; }
+.bl .bl-mode.soon { border: 2px dashed #156628; background: transparent; color: #1e7e34; cursor: default; }
+.bl .bl-mode.soon span { color: #1e7e34; }
+
+/* the team setup screen: name and mascot for each team, then READY */
+.bl-menu.teams { justify-content: flex-start; overflow-y: auto; padding-top: clamp(8px, 2.5vh, 26px); gap: clamp(6px, 1.6vh, 14px); }
+.bl-title.small { font-size: clamp(11px, 1.8vw, 20px); }
+.bl-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: min(980px, 98%); }
+.bl-team { border: 2px solid #156628; background: rgba(5, 13, 6, .88); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.bl-team.t0 { border-color: #27d3f2; box-shadow: 0 0 14px rgba(39, 211, 242, .3); }
+.bl-team.t1 { border-color: #f046d8; box-shadow: 0 0 14px rgba(240, 70, 216, .3); }
+.bl-team-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: 'Press Start 2P', monospace; font-size: 11px; color: #fff; }
+.bl-team-em { font-size: 26px; line-height: 1; }
+.bl-field { font-size: 11px; color: #22aa44; letter-spacing: .08em; display: block; }
+.bl-name {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 4px; background: #020703; color: #d6ffe0; border: 1px solid #156628;
+  padding: 8px 10px; font-family: 'Press Start 2P', monospace; font-size: 13px; outline: none; text-transform: uppercase;
+}
+.bl-name:focus { border-color: #ffd43b; box-shadow: 0 0 8px rgba(255, 212, 59, .35); }
+.bl-name:disabled { opacity: .65; }
+.bl-mascots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.bl .bl-mascots button { font-size: clamp(18px, 2.4vw, 28px); line-height: 1; padding: 6px 0; border: 2px solid #156628; background: #071208; }
+.bl .bl-mascots button:hover:not(:disabled) { background: #0c2410; border-color: #ffd43b; color: inherit; }
+.bl .bl-mascots button.sel { border-color: #ffd43b; background: #1d2a0c; box-shadow: 0 0 10px rgba(255, 212, 59, .55); }
+.bl .bl-mascots button:disabled { cursor: default; opacity: .55; }
+.bl .bl-mascots button.sel:disabled { opacity: 1; }
+.bl button.bl-ready { border: 2px solid #33FF66; padding: 9px 12px; font-family: 'Press Start 2P', monospace; font-size: 11px; }
+.bl button.bl-ready.on { background: #33FF66; color: #050d06; }
+.bl button.bl-ready:disabled { opacity: .45; cursor: default; }
+@media (max-width: 760px) { .bl-teams { grid-template-columns: 1fr; } }
+
+/* LOCK IN, under the pitch while planning */
+.bl button.bl-lock { border: 2px solid #ffd43b; color: #ffd43b; font-family: 'Press Start 2P', monospace; font-size: 11px; padding: 8px 14px; }
+.bl button.bl-lock:hover, .bl button.bl-lock.on { background: #ffd43b; color: #050d06; border-color: #ffd43b; }
+.bl button.bl-lock.on { background: #7cf29a; border-color: #7cf29a; }

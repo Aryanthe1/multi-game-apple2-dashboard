@@ -22,7 +22,7 @@
     ['#7B2CBF', '#ffffff'], ['#00dbe9', '#050d06'], ['#FFDD00', '#050d06'], ['#6dff7f', '#050d06'],
     ['#FF3366', '#050d06'], ['#ffd9dc', '#400011'], ['#7df4ff', '#002022'], ['#ffd4d7', '#c40044'],
   ];
-  G3.TRANSPORTS = { lan: 'WI-FI/LAN', online: 'ROOM_CODE', relay: 'RELAY', lora: 'LORA_RADIO' };
+  G3.TRANSPORTS = { lan: 'WI-FI/LAN', online: 'ROOM_CODE', relay: 'RELAY', lora: 'LORA_RADIO', solo: 'SOLO_TEST' };
   const WORDS = ['ember', 'tide', 'fern', 'gale', 'stone', 'spark', 'dusk', 'dawn', 'forge', 'cinder', 'brook', 'moss',
     'storm', 'flint', 'volt', 'shade', 'glow', 'ash', 'reef', 'thorn', 'cloud', 'slate', 'bolt', 'gloom', 'flare',
     'wave', 'root', 'wind', 'ore', 'zap', 'night', 'sun'];
@@ -47,7 +47,7 @@
 
   // ---------------------------------------------------------------- preferences (this browser)
   const DEFAULT_PREFS = {
-    beep: true, readable: true, scan: true, scanOp: 55, bloom: true, theme: 0, sfx: 80, bgm: 0, chip: 0,
+    beep: true, readable: true, scan: true, scanOp: 55, bloom: true, theme: 0, sfx: 80, bgm: 0, music: 22, chip: 0,
     alerts: { chat: true, join: true },
     keys: { prev: 'ArrowLeft', next: 'ArrowRight', exec: 'Enter', back: 'Escape', ready: 'KeyR', chat: 'KeyT' },
   };
@@ -93,6 +93,7 @@
     root.style.setProperty('--theme-filter', G3.THEMES[p.theme % G3.THEMES.length][1]);
     G3.$$('[data-beep-label]').forEach((b) => { b.textContent = p.beep ? '[ ♪ BEEP:ON ]' : '[ ♪ BEEP:OFF ]'; });
     bgmSync();
+    if (window.G3Music) G3Music.sync();
   }
 
   // ---------------------------------------------------------------- audio (WebAudio square-wave beeps + a tiny chiptune loop)

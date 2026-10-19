@@ -5,11 +5,11 @@
 
   // Which way the cube must turn to bring each game's face to the camera.
   // BoxGeometry face order is +x right, -x left, +y top, -y bottom, +z front, -z back.
-  const FACE_ORDER = ['sketch_rumble', 'letter_league', 'liars_bar', 'whos_away', 'bobble_league', 'kart_odyssey'];
+  const FACE_ORDER = ['rising_rush', 'letter_league', 'liars_bar', 'whos_away', 'bobble_league', 'battle_tide'];
   const TURN = {
     bobble_league: [0, 0],                 // [rotX, rotY]
-    sketch_rumble: [0, -Math.PI / 2],
-    kart_odyssey: [0, Math.PI],
+    rising_rush: [0, -Math.PI / 2],
+    battle_tide: [0, Math.PI],
     letter_league: [0, Math.PI / 2],
     liars_bar: [Math.PI / 2, 0],           // top face tips toward the camera
     whos_away: [-Math.PI / 2, 0],          // bottom face
@@ -17,6 +17,8 @@
   const TAU = Math.PI * 2;
 
   let current = 0, ready = false, cube = null, cubeApi = null;
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const booting = document.documentElement.classList.contains('boot');       // arrived from the access terminal
 
   // ---------------------------------------------------------------- the cube
   function buildCube() {
@@ -57,13 +59,14 @@
       mesh.add(n);
     })));
 
-    const st = { dragging: false, prev: { x: 0, y: 0 }, auto: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    const st = { dragging: false, prev: { x: 0, y: 0 }, auto: !calm,
                  snapping: false, target: { x: 0, y: 0, z: 0 }, vx: 0, vy: 0, vz: 0, resumeTimer: null };
 
     const readout = () => {};
-    const resumeLater = () => {
+    const resumeLater = (ms = 3200) => {                  // after a drag or a snap, let the cube roll again
       clearTimeout(st.resumeTimer);
-      st.resumeTimer = setTimeout(() => { if (!st.dragging && !st.snapping) st.auto = true; setCubeStatus(); }, 3200);
+      if (calm) return;
+      st.resumeTimer = setTimeout(() => { if (!st.dragging && !st.snapping) st.auto = true; setCubeStatus(); }, ms);
     };
     const down = (x, y) => { st.dragging = true; st.auto = false; st.snapping = false; st.vx = st.vy = st.vz = 0; st.prev = { x, y }; setCubeStatus(); };
     const move = (x, y) => {
@@ -87,10 +90,20 @@
       camera.aspect = nw / nh; camera.updateProjectionMatrix(); renderer.setSize(nw, nh);
     });
 
+    // arriving from the access terminal: the cube spins up out of nothing and settles into its roll
+    let intro = booting && !calm ? 0 : 1;
+    if (intro < 1) mesh.scale.setScalar(0.001);
     const clock = new THREE.Clock();
     (function animate() {
       requestAnimationFrame(animate);
       const dt = clock.getDelta(), el = clock.getElapsedTime();
+      if (intro < 1) {
+        intro = Math.min(1, intro + dt / 1.6);
+        const e = 1 - Math.pow(1 - intro, 3);
+        mesh.scale.setScalar(Math.max(e, 0.001));
+        mesh.rotation.y += (1 - e) * dt * 16;
+        mesh.rotation.x += (1 - e) * dt * 6;
+      }
       if (st.auto && !st.dragging) {
         mesh.rotation.y += dt * 0.42;
         mesh.rotation.x += Math.sin(el * 0.65) * 0.006;
@@ -101,7 +114,7 @@
         readout();
         if (['x', 'y', 'z'].every((a) => Math.abs(st.target[a] - mesh.rotation[a]) < 0.01)) {
           ['x', 'y', 'z'].forEach((a) => { mesh.rotation[a] = st.target[a]; });
-          st.snapping = false; setCubeStatus();
+          st.snapping = false; setCubeStatus(); resumeLater(4500);
         }
       } else if (!st.dragging) {
         mesh.rotation.x += st.vx; mesh.rotation.y += st.vy; mesh.rotation.z += st.vz;
@@ -124,14 +137,14 @@
   }
 
   // ---------------------------------------------------------------- selecting a cartridge
-  function selectFace(i, sfx = true) {
+  function selectFace(i, sfx = true, snap = true) {
     const cat = G3.state.catalog;
     if (!cat.length) return;
     i = (i + cat.length) % cat.length;
     current = i;
     if (sfx) G3.beep(720, 0.09);
     const g = cat[i];
-    if (cubeApi) cubeApi.snapTo(g.id);
+    if (cubeApi) { if (snap) cubeApi.snapTo(g.id); }
     else {
       const holder = $('#cube3dContainer');
       let img = $('#flatCover');
@@ -150,6 +163,13 @@
     if (!g) return;
     $('#gameExeTitle').textContent = g.exe;
     $('#gameMetaSub').textContent = `${g.genre} · ${g.min === g.max ? g.max : g.min + '-' + g.max} PLAYERS`;
+  }
+
+  function launchSolo() {
+    const g = G3.state.catalog[current];
+    if (!g) return;
+    G3.beep(660, 0.12, 'square');
+    location.href = `lobby.html?game=${encodeURIComponent(g.id)}&solo=1`;
   }
 
   function launch() {
@@ -191,7 +211,6 @@
   }
 
   // ---------------------------------------------------------------- wiring
-  // ---------------------------------------------------------------- wiring
   function buildDock() {
     const cat = G3.state.catalog;
     $('#faceButtons').innerHTML = cat.map((g, i) => `<button class="px-2 py-1 text-[9px] font-pixel border border-[#156628] hover:border-[#33FF66] hover:bg-[#33FF66] hover:text-[#050d06] bg-[#050d06] text-[#33FF66] transition-colors" data-face="${i}" title="${esc(g.exe)}">F${i + 1}</button>`).join('');
@@ -203,7 +222,7 @@
       ready = true;
       buildDock();
       const i = Math.max(0, m.catalog.findIndex((g) => g.id === m.settings.game));
-      selectFace(i, false);
+      selectFace(i, false, false);                 // show the saved game's card, but leave the cube rolling
     }
     renderRoster(); renderCard();
   });
@@ -211,7 +230,9 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     cubeApi = buildCube();
+    if (booting) setTimeout(() => document.documentElement.classList.remove('boot'), 3200);
     $('#launchBtn').addEventListener('click', launch);
+    $('#soloBtn').addEventListener('click', launchSolo);
     window.addEventListener('keydown', (e) => {
       if (e.target.matches && e.target.matches('input,textarea,select')) return;
       if (e.ctrlKey || e.metaKey || e.altKey || !ready) return;

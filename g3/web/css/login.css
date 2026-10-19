@@ -1,12 +1,12 @@
-/* Login + the Trial of the Rising Sun.  Green phosphor terminal with a rising sun behind it. */
+/* Login + the Riddle of the Rising Sun.  Green phosphor terminal with a rising sun behind it. */
 :root { --sun: #e60026; --sun-hi: #ff4d6a; --gold: #ffd43b; --g: #33FF66; --gd: #22aa44; --gdd: #156628; --panel: #050d06; }
 html, body { min-height: 100%; }
 body { background: #030904; color: var(--g); font-family: 'Share Tech Mono', monospace; margin: 0; overflow-x: hidden; }
 
 /* the sun: a disc rising over the bottom edge, with slowly turning rays */
-.sun { position: fixed; left: 50%; bottom: 0; width: 0; height: 0; z-index: 0; pointer-events: none; }
+.sunbg { position: fixed; left: 50%; bottom: 0; width: 0; height: 0; z-index: 0; pointer-events: none; }
 .sun-rays {
-  position: absolute; left: -900px; top: -900px; width: 1800px; height: 1800px; border-radius: 50%;
+  position: absolute; left: -900px; top: -840px; width: 1800px; height: 1800px; border-radius: 50%;
   background: repeating-conic-gradient(from 0deg, rgba(230, 0, 38, .13) 0 6deg, transparent 6deg 15deg);
   -webkit-mask-image: radial-gradient(circle, #000 18%, transparent 62%); mask-image: radial-gradient(circle, #000 18%, transparent 62%);
   animation: spin 160s linear infinite;
@@ -29,8 +29,8 @@ body > .crt-vignette { position: fixed; inset: 0; z-index: 40; pointer-events: n
 .lg-logo { font-family: 'Press Start 2P', monospace; font-size: 44px; line-height: 1; }
 .lg-logo .g { color: var(--g); text-shadow: 0 0 10px var(--g); }
 .lg-logo .three { color: #FFB000; font-size: 24px; vertical-align: super; text-shadow: 0 0 8px #FFB000; }
-.lg-kanji { font-size: 22px; letter-spacing: .08em; color: var(--sun-hi); text-shadow: 0 0 12px rgba(230, 0, 38, .8); }
-.lg-kanji span { color: var(--gd); font-size: 13px; letter-spacing: .2em; text-shadow: none; }
+.lg-tagline { font-size: 22px; letter-spacing: .08em; color: var(--sun-hi); text-shadow: 0 0 12px rgba(230, 0, 38, .8); }
+.lg-tagline span { color: var(--gd); font-size: 13px; letter-spacing: .2em; text-shadow: none; }
 .lg-sub { font-family: 'Press Start 2P', monospace; font-size: 10px; color: var(--g); letter-spacing: .12em; margin-top: 6px; }
 
 .lg-card {
@@ -54,8 +54,8 @@ body > .crt-vignette { position: fixed; inset: 0; z-index: 40; pointer-events: n
 .lg-tab.on { background: var(--g); color: #050d06; border-color: var(--g); font-weight: bold; box-shadow: 0 0 8px var(--g); }
 .lg-btn.big { border: 2px solid var(--g); color: var(--g); padding: 12px 22px; font-family: 'Press Start 2P', monospace; font-size: 11px; letter-spacing: .08em; }
 .lg-btn.big:hover:not(:disabled) { background: var(--g); color: #050d06; }
-.lg-btn.sun { border-color: var(--sun-hi); color: var(--sun-hi); }
-.lg-btn.sun:hover:not(:disabled) { background: var(--sun); color: #fff; border-color: var(--sun); }
+.lg-btn.hot { border-color: var(--sun-hi); color: var(--sun-hi); }
+.lg-btn.hot:hover:not(:disabled) { background: var(--sun); color: #fff; border-color: var(--sun); }
 .lg-btn:disabled { opacity: .4; cursor: not-allowed; }
 .lg-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
 .lg-row.end { justify-content: space-between; }
@@ -68,41 +68,45 @@ body > .crt-vignette { position: fixed; inset: 0; z-index: 40; pointer-events: n
 }
 .lg-input:focus { border-color: var(--g); box-shadow: 0 0 8px rgba(51, 255, 102, .3); }
 
-/* the rank ladder on the briefing */
-.lg-ranks { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 14px 0; }
-.lg-rank { border: 1px solid var(--gdd); padding: 8px 10px; background: #071208; font-size: 11px; color: var(--gd); }
-.lg-rank b { display: block; font-family: 'Press Start 2P', monospace; font-size: 10px; color: var(--g); font-weight: normal; margin-bottom: 4px; }
-.lg-rank em { color: var(--gold); font-style: normal; }
-
-/* the trial */
-.tr-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--gd); margin-bottom: 8px; }
-.tr-bar { font-family: 'Press Start 2P', monospace; font-size: 10px; color: var(--g); letter-spacing: 1px; margin-bottom: 14px; word-break: break-all; }
-.tr-scroll { border-top: 1px solid var(--gdd); padding-top: 12px; }
-.tr-sectitle { font-family: 'Press Start 2P', monospace; font-size: 11px; color: var(--sun-hi); margin: 0 0 4px; line-height: 1.6; }
-.tr-secsub { color: var(--gd); font-size: 12px; margin-bottom: 16px; }
-.tr-q { margin: 0 0 20px; }
-.tr-qt { color: #d6ffe0; font-size: 14px; line-height: 1.55; margin-bottom: 8px; }
-.tr-qt .n { color: var(--gold); margin-right: 6px; }
-.tr-hint { color: var(--gdd); font-size: 11px; margin-bottom: 6px; }
-.opt {
-  display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--gdd); background: #071208; color: var(--gd);
-  padding: 8px 10px; margin-bottom: 6px; cursor: pointer; font-size: 13px; line-height: 1.45;
-}
-.opt:hover { border-color: var(--g); color: var(--g); }
-.opt input { position: absolute; opacity: 0; pointer-events: none; }
-.opt .mark { flex: none; color: var(--gdd); }
-.opt.sel { border-color: var(--g); background: #0c2410; color: var(--g); box-shadow: 0 0 6px rgba(51, 255, 102, .25); }
-.opt.sel .mark { color: var(--g); }
-.opt:focus-within { outline: 1px dashed var(--gold); }
+/* the riddle */
+.rd-box { border-left: 3px solid var(--sun-hi); background: #071208; padding: 14px 16px; margin: 6px 0 16px; }
+.rd-line { color: #d6ffe0; font-size: 15px; line-height: 1.7; margin: 0 0 8px; }
+.rd-line:last-child { color: var(--gold); margin-bottom: 0; }
 
 /* results */
 .rs-rank { text-align: center; padding: 18px 6px 8px; }
-.rs-kanji { font-size: 54px; line-height: 1.1; color: var(--sun-hi); text-shadow: 0 0 22px rgba(230, 0, 38, .85); }
+.rs-sun { width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #ff3b57, var(--sun) 60%, #7a0016); box-shadow: 0 0 28px 6px rgba(230, 0, 38, .6); }
+.rs-sun.set { filter: grayscale(1) brightness(.5); box-shadow: none; }
 .rs-name { font-family: 'Press Start 2P', monospace; font-size: 20px; margin: 10px 0 6px; }
 .rs-name.pass { color: var(--g); text-shadow: 0 0 14px var(--g); }
 .rs-name.fail { color: #FF3366; text-shadow: 0 0 14px #FF3366; }
 .rs-pct { color: var(--gold); font-size: 15px; }
-.rs-sec { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; font-size: 12px; margin: 14px 0; }
-.rs-sec .bar { grid-column: 1 / -1; font-family: 'Press Start 2P', monospace; font-size: 9px; color: var(--g); margin-bottom: 8px; letter-spacing: 1px; }
-.rs-sec .bar.low { color: #FF3366; }
-@media (max-width: 560px) { .lg-card { padding: 14px; } .lg-logo { font-size: 32px; } .rs-kanji { font-size: 40px; } }
+@media (max-width: 560px) { .lg-card { padding: 14px; } .lg-logo { font-size: 32px; } }
+
+/* ---- leaving the access terminal: the card drops away, the sun climbs and floods the screen, G3 boots ---- */
+@keyframes ascendRays {
+  0%   { translate: 0 0; scale: 1; }
+  50%  { translate: 0 calc(-50vh - 60px); scale: 1.1; }
+  100% { translate: 0 calc(-50vh - 60px); scale: 4; }
+}
+@keyframes ascend {
+  0%   { transform: none; opacity: .9; }
+  50%  { transform: translateY(calc(-50vh - 60px)) scale(1.1); opacity: 1; }
+  100% { transform: translateY(calc(-50vh - 60px)) scale(10); opacity: 1; }
+}
+body.ascend .lg-main { transition: opacity .55s ease-in, transform .55s ease-in, filter .55s ease-in; opacity: 0; transform: translateY(-26px) scale(.97); filter: blur(3px); pointer-events: none; }
+body.ascend .sun-disc { animation: ascend 1.9s cubic-bezier(.5, 0, .75, .6) forwards; }
+/* the rays ride up and swell with the sun: `translate`/`scale` are separate properties, so they run beside the spin */
+body.ascend .sun-rays { animation: spin 14s linear infinite, ascendRays 1.9s cubic-bezier(.5, 0, .75, .6) forwards; }
+.boot { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.boot-box { min-width: min(420px, 86vw); background: rgba(3, 9, 4, .9); border: 1px solid var(--g); padding: 18px 22px; box-shadow: 0 0 18px rgba(51, 255, 102, .35);
+            font-size: 13px; line-height: 1.8; color: var(--g); opacity: 0; animation: bootBox .35s .35s ease-out forwards; }
+.boot-box p { margin: 0; white-space: nowrap; }
+.boot-box p b { color: var(--gold); font-weight: normal; }
+.boot-bar { margin-top: 10px; height: 8px; border: 1px solid var(--g); }
+.boot-bar i { display: block; height: 100%; width: 0; background: var(--g); box-shadow: 0 0 8px var(--g); animation: bootFill 1.7s .6s cubic-bezier(.3, .1, .3, 1) forwards; }
+.boot-flash { position: fixed; inset: 0; z-index: 95; background: #33FF66; opacity: 0; pointer-events: none; }
+.boot.go .boot-box { animation: none; opacity: 0; transition: opacity .2s; }
+.boot.go ~ .boot-flash, .boot-flash.go { opacity: 1; transition: opacity .38s ease-in; }
+@keyframes bootBox { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes bootFill { to { width: 100%; } }

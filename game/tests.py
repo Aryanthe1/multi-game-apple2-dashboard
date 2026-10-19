@@ -105,7 +105,7 @@ def test_framing():
 
 
 # ------------------------------------------------------------------ LAN rooms with several guests
-def lan_room(max_players=4, game="sketch_rumble"):
+def lan_room(max_players=4, game="rising_rush"):
     port = free_port()
     hub = hubmod.Hub("HOST", "lan", game=game, max_players=max_players)
     lob = Lobby("HOST", port=port)
@@ -203,7 +203,7 @@ def test_capacity():
     check("a third player is turned away from a 2-slot room", b.closed and "full" in b.why)
     check("the host keeps exactly one guest", len(hub.peers) == 1)
     check("max can't drop below the players present", hub.set_max(2)[0] and hub.max == 2)
-    hub.select_game("kart_odyssey")
+    hub.select_game("battle_tide")
     check("max is clamped to the game's limit", hub.set_max(16)[0] and hub.max == 4)
     check("a roomier game can be picked again", hub.select_game("bobble_league")[0] is True)
     hub.close()
@@ -591,14 +591,18 @@ def test_hub_rules():
     check("a dead link is dropped with its reason",
           1 not in hub.peers and any(e["t"] == "sys" and "pulled the plug" in e["m"] for e in ev))
 
-    big = hubmod.Hub("BIG", game="sketch_rumble", max_players=16)
+    big = hubmod.Hub("BIG", game="rising_rush", max_players=16)
     for i in range(5):
         big.add_link(FakeLink(f"P{i}"))
     big.step()
-    ok, why = big.select_game("kart_odyssey")
+    ok, why = big.select_game("battle_tide")
     check("a game that can't hold everyone present is refused", not ok and "at most 4" in why)
     check("start needs the game's minimum player count",
           hubmod.Hub("SOLO", game="bobble_league").start()[0] is False)
+    solo = hubmod.Hub("SOLO", "solo", "SOLO", "bobble_league", 2, 2, solo=True)
+    snap = solo.snapshot()
+    check("a solo test room is up at once and needs only the host", snap["solo"] and snap["link"] == "up" and snap["min"] == 1)
+    check("and starts a two-player game alone", solo.start()[0] and solo.phase == "playing")
 
     t0 = time.time()
     b.events.put({"t": "pon", "ts": t0 - 0.05})

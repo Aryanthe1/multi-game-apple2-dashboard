@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23020703'/%3E%3Crect x='3' y='3' width='10' height='10' fill='none' stroke='%2333FF66' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="vendor/fonts.css">
 <link rel="stylesheet" href="css/g3.css">
+<script>try { if (sessionStorage.getItem('g3.boot')) { sessionStorage.removeItem('g3.boot'); document.documentElement.classList.add('boot'); } } catch (e) { /* no storage: no intro */ }</script>
 <script src="vendor/tailwind.js"></script>
 <script src="vendor/three.min.js"></script>
 </head>
@@ -48,6 +49,7 @@
           <div class="text-base md:text-lg font-pixel text-[#33FF66] glow-green tracking-tight" id="gameExeTitle">BOBBLE_LEAGUE.EXE</div>
           <div class="text-xs font-mono text-[#FFB000] mt-1" id="gameMetaSub"></div>
         </div>
+        <button class="px-3 py-3 border border-[#FFB000] text-[#FFB000] hover:bg-[#FFB000] hover:text-[#050d06] transition-colors text-[10px] font-pixel tracking-wider" id="soloBtn" title="Play this game alone, no network (for testing)">[ SOLO TEST ]</button>
         <button class="group px-5 py-3 border-2 border-[#33FF66] bg-[#050d06] hover:bg-[#33FF66] transition-all duration-150 box-glow-green flex items-center gap-3" id="launchBtn">
           <span class="text-base text-[#33FF66] group-hover:text-[#050d06] font-pixel">▶</span>
           <span class="text-xs font-pixel text-[#33FF66] group-hover:text-[#050d06] tracking-wider">[ SELECT ]</span>
@@ -67,6 +69,7 @@
 
 </div>
 
+<script src="js/music.js"></script>
 <script src="js/core.js"></script>
 <script src="js/launcher.js"></script>
 </body>

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import re
 import os
 import shutil
 import socket
@@ -34,6 +35,10 @@ DEFAULT_PORT = 8733
 mimetypes.add_type("font/woff2", ".woff2")
 mimetypes.add_type("text/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("audio/mpeg", ".mp3")
+mimetypes.add_type("audio/ogg", ".ogg")
+mimetypes.add_type("audio/wav", ".wav")
+mimetypes.add_type("audio/mp4", ".m4a")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -102,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
             if what == "quiz":
                 return self._json(200, self.auth.start_trial(tok))
             if what == "submit":
-                return self._json(200, self.auth.submit_trial(tok, body.get("id"), body.get("answers")))
+                return self._json(200, self.auth.submit_trial(tok, body.get("id"), body.get("answer")))
         except AuthError as e:
             return self._json(e.status, {"error": str(e), "retryIn": e.retry_in})
         self._deny(404, "not found")
@@ -177,7 +182,16 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/json", "application/javascript"):
             ctype += "; charset=utf-8"
-        self._send(200, ctype, target.read_bytes())
+        data = target.read_bytes()
+        rng = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range") or "") if ctype.startswith("audio/") else None
+        if rng and (rng.group(1) or rng.group(2)):               # audio needs byte ranges to seek (resuming the music on the next page)
+            n = len(data)
+            a, b = (n - int(rng.group(2)), n - 1) if not rng.group(1) else (int(rng.group(1)), int(rng.group(2) or n - 1))
+            b = min(b, n - 1)
+            if a > b or a >= n:
+                return self._send(416, "text/plain", b"", [("Content-Range", f"bytes */{n}")])
+            return self._send(206, ctype, data[a:b + 1], [("Content-Range", f"bytes {a}-{b}/{n}"), ("Accept-Ranges", "bytes")])
+        self._send(200, ctype, data, [("Accept-Ranges", "bytes")] if ctype.startswith("audio/") else ())
 
     def _websocket(self):
         key = self.headers.get("Sec-WebSocket-Key")
@@ -218,7 +232,7 @@ class Server(ThreadingHTTPServer):
 
 def make_server(host="127.0.0.1", port=DEFAULT_PORT, data="~/.g3", scan=True, login=False):
     """Open the app and an HTTP server on the first free port from `port`.  With login=True every page and the
-    WebSocket need a clearance earned through the Trial of the Rising Sun (g3/auth.py)."""
+    WebSocket need a clearance earned through the Riddle of the Rising Sun (g3/auth.py)."""
     app = App(data)
     hosts = set()
     handler = type("BoundHandler", (Handler,), {"app": app, "allowed_hosts": hosts,
@@ -325,7 +339,7 @@ def main(argv=None):
     ap.add_argument("--data", default=os.environ.get("G3_DATA", "~/.g3"), help="settings folder (use a different one for a second copy)")
     ap.add_argument("--no-browser", action="store_true", help="don't open any window")
     ap.add_argument("--tab", action="store_true", help="open a normal browser tab instead of an app window")
-    ap.add_argument("--no-login", action="store_true", help="skip the login and the Trial of the Rising Sun (development)")
+    ap.add_argument("--no-login", action="store_true", help="skip the login and the Riddle of the Rising Sun (development)")
     args = ap.parse_args(argv)
     return serve(port=args.port, data=args.data, open_browser=not args.no_browser, window=not args.tab,
                  login=not (args.no_login or os.environ.get("G3_NOLOGIN")))

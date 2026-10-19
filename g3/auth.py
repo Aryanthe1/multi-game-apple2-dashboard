@@ -1,11 +1,11 @@
 """Login and clearance for the G3 launcher.
 
 An "operator" registers a callsign and passcode (stored salted and hashed in <data dir>/auth.json), logs in, then sits
-the Trial of the Rising Sun (g3/lore.py) to earn a clearance level 1-4.  Level 0 means the trial was failed and the
-launcher stays locked.  Sessions live in memory, so restarting G3 asks everyone to log in again.
+the Riddle of the Rising Sun (g3/lore.py) to earn clearance level 1.  Level 0 means the riddle hasn't been solved and
+the launcher stays locked.  Sessions live in memory, so restarting G3 asks everyone to log in again.
 
 This is a local gate in front of a loopback-only server, not a security boundary against someone with the files; what
-it does guarantee is that the trial is graded here, so a page can't just claim a level.
+it does guarantee is that the riddle is judged here, so a page can't just claim a level.
 """
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ import hashlib
 import hmac
 import json
 import os
-import random
 import re
 import secrets
 import threading
@@ -26,8 +25,8 @@ NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,16}$")
 PASS_MIN, PASS_MAX = 4, 64
 KDF_ROUNDS = 200_000
 SESSION_TTL = 12 * 3600
-TRIAL_TTL = 45 * 60                 # time allowed to finish one trial
-RETRY_AFTER_FAIL = 60               # seconds before a failed operator may sit the trial again
+TRIAL_TTL = 15 * 60                 # time allowed to answer once the riddle is heard
+RETRY_AFTER_FAIL = 15               # seconds before a wrong guess may be followed by another
 LOCK_AFTER, LOCK_FOR = 5, 30        # wrong passcodes in a row, then seconds locked out
 
 
@@ -45,7 +44,7 @@ class Session:
     def __init__(self, user):
         self.user = user                 # the account key (lower-case callsign)
         self.born = time.time()
-        self.trial = None                # {"id", "key", "started"}
+        self.trial = None                # {"id", "started"}
 
 
 class Auth:
@@ -84,7 +83,7 @@ class Auth:
             if key in self.accounts:
                 raise AuthError("That callsign is already taken.", 409)
             salt = os.urandom(16)
-            self.accounts[key] = {"name": name, "salt": salt.hex(), "hash": _hash(passcode, salt), "level": 0, "pct": 0,
+            self.accounts[key] = {"name": name, "salt": salt.hex(), "hash": _hash(passcode, salt), "level": 0,
                                   "retry_at": 0, "created": int(time.time())}
             self._save()
             return self._open(key)
@@ -138,7 +137,7 @@ class Auth:
             return {"authed": False}
         a = self.accounts[s.user]
         return {"authed": True, "name": a["name"], "level": a["level"], "rank": lore.rank_name(a["level"]),
-                "pct": a.get("pct", 0), "cleared": a["level"] >= 1,
+                "cleared": a["level"] >= 1,
                 "retryIn": max(0, int(a.get("retry_at", 0) - time.time()))}
 
     def cleared(self, token):
@@ -157,33 +156,27 @@ class Auth:
                 raise AuthError("Log in first.", 401)
             wait = int(self.accounts[s.user].get("retry_at", 0) - time.time())
             if wait > 0:
-                raise AuthError("The shrine is closed to you for a while after a failed trial.", 429, wait)
-            public, key = lore.build(random.SystemRandom())
-            s.trial = {"id": secrets.token_hex(6), "key": key, "started": time.time()}
-            return {"id": s.trial["id"], "minutes": TRIAL_TTL // 60, "total": len(public),
-                    "sections": [{"id": x["id"], "title": x["title"], "sub": x["sub"]} for x in lore.SECTIONS],
-                    "questions": public}
+                raise AuthError("The gate is closed to you for a moment after a wrong answer.", 429, wait)
+            s.trial = {"id": secrets.token_hex(6), "started": time.time()}
+            return {"id": s.trial["id"], "title": lore.TITLE, "riddle": lore.RIDDLE}
 
-    def submit_trial(self, token, trial_id, answers):
+    def submit_trial(self, token, trial_id, answer):
         with self.lock:
             s = self.session(token)
             if s is None:
                 raise AuthError("Log in first.", 401)
             t = s.trial
-            if t is None or t["id"] != trial_id:             # a stray submission must not destroy the trial in progress
-                raise AuthError("No trial is in progress. Begin a new one.", 409)
-            s.trial = None                                   # one submission per trial, pass or fail
+            if t is None or t["id"] != trial_id:             # a stray submission must not destroy the riddle in progress
+                raise AuthError("No riddle is waiting. Ask for it again.", 409)
+            s.trial = None                                   # one guess per hearing, right or wrong
             if time.time() - t["started"] > TRIAL_TTL:
-                raise AuthError("The trial ran out of time. Begin a new one.", 410)
-            res = lore.grade(t["key"], answers)
+                raise AuthError("The riddle faded while you thought. Ask for it again.", 410)
+            passed = lore.is_right(answer)
+            level, rank = lore.level_for(passed)
             acct = self.accounts[s.user]
-            best = max(acct["level"], res["level"])         # a later, worse trial never takes a clearance away
-            if res["level"] >= acct["level"]:
-                acct["pct"] = res["pct"] if res["level"] > acct["level"] else max(acct.get("pct", 0), res["pct"])
-            acct["level"] = best
-            if res["level"] == 0:
+            acct["level"] = max(acct["level"], level)       # a later wrong guess never takes a clearance away
+            if not passed:
                 acct["retry_at"] = time.time() + RETRY_AFTER_FAIL
             self._save()
-            res.update({"best": best, "bestRank": lore.rank_name(best), "passed": res["level"] >= 1,
-                        "retryIn": RETRY_AFTER_FAIL if res["level"] == 0 else 0})
-            return res
+            return {"passed": passed, "level": level, "rank": rank, "best": acct["level"],
+                    "bestRank": lore.rank_name(acct["level"]), "retryIn": 0 if passed else RETRY_AFTER_FAIL}

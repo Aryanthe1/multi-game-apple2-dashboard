@@ -4,9 +4,9 @@ One folder per game, named after its id in `game/hub.py` (`GAMES`):
 
 | folder | game | state |
 | --- | --- | --- |
-| `bobble_league/` | Bobble League, slime soccer | playable (base game) |
-| `sketch_rumble/` | Sketch Rumble, draw and guess | not started |
-| `kart_odyssey/` | Kart Odyssey, cosmic racing | not started |
+| `bobble_league/` | Bobble League, top-down simultaneous-planning tactics (teams of 6) | playable (base game) |
+| `rising_rush/` | Rising Rush, ninja boss rush | not started |
+| `battle_tide/` | Battle Tide, naval tactics | not started |
 | `letter_league/` | Letter League, co-op word puzzle | not started |
 | `liars_bar/` | Liar's Bar, bluffing | not started |
 | `whos_away/` | Who's Away From Home, escape room | not started |

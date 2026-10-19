@@ -31,9 +31,9 @@ from collections import deque
 
 # id -> (exe title, long name, genre line, min players to start, max players)
 GAMES = {
-    "bobble_league": ("BOBBLE_LEAGUE.EXE", "BOBBLE LEAGUE / SLIME SOCCER", "2D SLIME SOCCER", 2, 8),
-    "sketch_rumble": ("SKETCH_RUMBLE.EXE", "SKETCH HEADS / SKETCH RUMBLE", "MULTIPLAYER DOODLE PARTY", 1, 16),
-    "kart_odyssey": ("KART_ODYSSEY.EXE", "KART ODYSSEY / PIXEL-FREE PUFFERS", "COSMIC INDIE RACING", 1, 4),
+    "bobble_league": ("BOBBLE_LEAGUE.EXE", "BOBBLE LEAGUE / TOP-DOWN TACTICS", "TOP-DOWN BOBBLE TACTICS", 2, 8),
+    "rising_rush": ("RISING_RUSH.EXE", "RISING RUSH / BOSS RUSH", "NINJA BOSS RUSH", 1, 8),
+    "battle_tide": ("BATTLE_TIDE.EXE", "BATTLE TIDE / NAVAL TACTICS", "NAVAL TACTICS", 1, 4),
     "letter_league": ("LETTER_LEAGUE.EXE", "LETTER LEAGUE / WORD PUZZLE PARTY", "CO-OP WORD PUZZLE", 1, 8),
     "liars_bar": ("LIARS_BAR.EXE", "LIAR'S BAR / BLUFFING PARTY", "DECK BLUFFING & DICE", 2, 4),
     "whos_away": ("WHOS_AWAY_FROM_HOME.EXE", "WHO'S AWAY FROM HOME / ESCAPE ROOM", "MYSTERY ESCAPE ROOM", 1, 4),
@@ -96,8 +96,9 @@ class Hub(_Base):
     is_host = True
 
     def __init__(self, name, transport="lan", code="", game=DEFAULT_GAME, max_players=8,
-                 cap=MAX_ROOM, avatar=0):
+                 cap=MAX_ROOM, avatar=0, solo=False):
         super().__init__()
+        self.solo = bool(solo)             # testing: no network, and the host alone is enough to start
         self.name = clean_name(name)
         self.transport = transport
         self.code = code
@@ -107,7 +108,7 @@ class Hub(_Base):
         self.phase = "lobby"
         self.seed = 0
         self.av = avatar % N_AVATARS
-        self.link_state = "starting"       # starting | up
+        self.link_state = "up" if self.solo else "starting"       # starting | up
         self.peers = {}                    # pid -> Peer
         self.inbox = queue.Queue()
         self.version = 0
@@ -161,7 +162,7 @@ class Hub(_Base):
             g = GAMES[self.game]
             return {"t": "room", "v": self.version, "you": you, "host": True, "code": self.code,
                     "transport": self.transport, "link": self.link_state, "game": self.game,
-                    "min": g[3], "gmax": min(g[4], self.cap), "max": self.max, "phase": self.phase,
+                    "solo": self.solo, "min": 1 if self.solo else g[3], "gmax": min(g[4], self.cap), "max": self.max, "phase": self.phase,
                     "seed": self.seed, "slots": self._slots()}
 
     def _broadcast_room(self):
@@ -343,8 +344,9 @@ class Hub(_Base):
             g = GAMES[self.game]
             if self.phase != "lobby":
                 return False, "a game is already running"
-            if self.players() < g[3]:
-                return False, f"{g[0]} needs at least {g[3]} players"
+            need = 1 if self.solo else g[3]
+            if self.players() < need:
+                return False, f"{g[0]} needs at least {need} players"
             waiting = [p.name for p in self.peers.values() if not p.ready]
             if waiting:
                 return False, "waiting for " + ", ".join(waiting)

@@ -1,12 +1,21 @@
-/* Bobble League: the match simulation.
+/* Bobble League: the match simulation (top-down, simultaneous planning).
  *
- * Pure and DOM-free so it runs in the browser (on the HOST only; guests just draw the snapshots the
- * host sends) and under Node for tests.  Everything is in pixels and seconds on a fixed 1/60 s step.
+ * Pure and DOM-free so it runs in the browser (on the HOST only; guests just draw the snapshots the host sends)
+ * and under Node for tests.  Pixels and seconds, one tick = 1/60 s (physics runs in 3 sub-steps per tick).
  *
- *   world: x 0..W is the pitch, y grows downward, the floor is at y = FLOOR.
- *          The goals are nets behind each end wall: x -NET..0 (left) and W..W+NET (right),
- *          open between the floor and the crossbar at y = BAR.
- *   team 0 (cyan) defends the LEFT goal and attacks right; team 1 (magenta) the other way round.
+ *   world: the pitch is x 0..W, y 0..H seen from above, y grows downward.  The goals are nets behind the end
+ *          lines: x -NET..0 on the left and W..W+NET on the right, open for y GY0..GY1 (the ball only; the
+ *          bobbles can't enter).  Team 0 (cyan) defends the LEFT goal and attacks right; team 1 (magenta) the other way.
+ *   teams: every team is always 6 bobbles (discs 0..5 are team 0, 6..11 team 1) and there is one ball.  The bobbles of
+ *          a team are shared out evenly between its players: 1 v 1 gives 6 each, 2 v 2 gives 3 each, 4 v 4 gives 2,2,1,1.
+ *          With a single player in the room (solo test) that player commands all twelve.
+ *   rounds: both teams plan at the same time.  During the PLAN phase every player sets a flick (direction and power) for
+ *          each of their own bobbles, as many as they like, and locks in.  When everybody has locked in (or the planning
+ *          time is up) all the flicks happen at once; the bobbles slide, collide and rebound until everything has
+ *          stopped, and the next round of planning starts.  Plans are private: the host never sends them to anyone.
+ *   rules: goal = the ball fully over the goal line between the posts; then the pitch is reset.  First to GOAL_LIMIT
+ *          wins; when the match clock (which runs during planning and movement) runs out the leader wins, and a tie
+ *          goes to sudden death (next goal wins).
  */
 (function (root, factory) {
   const api = factory();
@@ -15,293 +24,338 @@
   'use strict';
 
   const C = {
-    W: 1200, FLOOR: 540, BAR: 330, NET: 90,
-    PR: 38,                       // slime radius
-    BR: 22,                       // ball radius
-    GRAV_P: 2300, GRAV_B: 1300,
-    RUN: 360, ACC_G: 3400, ACC_A: 1700, FRIC: 2800,
-    JUMP: 880,                    // jump speed: about 170 px high, 4.5 slimes
-    SLIDE_V: 640, SLIDE_T: 0.28, SLIDE_CD: 0.85,
-    DRAG: 0.12, BALL_MAX: 1500,
-    MATCH: 120,                   // seconds of play
-    OT: 60,                       // golden-goal overtime, seconds
-    COUNT: 3, KICKOFF_COUNT: 2, GOAL_PAUSE: 2.6,
-    STEP: 1 / 60,
+    W: 1000, H: 620, NET: 70,
+    GY0: 200, GY1: 420,           // the goal mouth (between the posts)
+    DR: 28,                       // bobble radius
+    BR: 16,                       // ball radius
+    POST: 7,
+    M_DISC: 1, M_BALL: 0.45,
+    MAXV: 1500,                   // flick speed at full power, px/s
+    CAP_DISC: 2000, CAP_BALL: 2400,
+    K_DISC: 1.5, D_DISC: 70,      // sliding friction: exponential (per s) and constant (px/s^2)
+    K_BALL: 1.0, D_BALL: 35,
+    E_DISC: 0.9, E_BALL: 0.88, E_WALL: 0.85,
+    REST: 8,                      // below this speed (px/s) a body counts as stopped
+    REST_T: 0.35,                 // everything stopped for this long ends the round
+    PLAN_TIME: 30,                // seconds to plan a round
+    MATCH: 300,                   // match clock, seconds (runs during planning and movement)
+    GOAL_LIMIT: 3,
+    COUNT: 3, GOAL_PAUSE: 2.6,
+    STEP: 1 / 60, SUB: 3,
+    TEAM: 6,                      // bobbles per team, always
+    MASCOTS: 12,                  // how many mascots the client offers (the sim only stores the index)
+    NAME_MAX: 12,
   };
-
-  // walls the ball bounces off: [ax, ay, bx, by, restitution, nx, ny]  (n = the side the ball lives on)
-  const SEGS = [
-    [-C.NET, C.FLOOR, C.W + C.NET, C.FLOOR, 0.74, 0, -1],     // floor
-    [0, 0, C.W, 0, 0.7, 0, 1],                                // ceiling
-    [0, 0, 0, C.BAR, 0.8, 1, 0],                              // end walls above the goals
-    [C.W, 0, C.W, C.BAR, 0.8, -1, 0],
-    [-C.NET, C.BAR, 0, C.BAR, 0.5, 0, 1],                     // crossbar / net roof
-    [C.W, C.BAR, C.W + C.NET, C.BAR, 0.5, 0, 1],
-    [-C.NET, C.BAR, -C.NET, C.FLOOR, 0.35, 1, 0],             // back of the nets
-    [C.W + C.NET, C.BAR, C.W + C.NET, C.FLOOR, 0.35, -1, 0],
-  ];
+  const DEFAULT_NAMES = ['CYAN', 'MAGENTA'];
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const approach = (v, to, d) => (v < to ? Math.min(to, v + d) : Math.max(to, v - d));
+  const POSTS = [[0, C.GY0], [0, C.GY1], [C.W, C.GY0], [C.W, C.GY1]];
 
-  function newPlayer(id, team) {
-    return { id, team, x: 0, y: C.FLOOR - C.PR, px: 0, py: 0, vx: 0, vy: 0, face: team ? -1 : 1, ground: true,
-             slideT: 0, slideCd: 0, prevS: false, inp: { l: 0, r: 0, u: 0, s: 0 } };
-  }
+  // kickoff spots for team 0 (the left side); team 1 is the mirror image
+  const FORMATION = [[70, C.H / 2], [200, C.H / 2 - 125], [200, C.H / 2 + 125], [335, C.H / 2 - 205], [320, C.H / 2], [335, C.H / 2 + 205]];
 
-  /** players: [{id, team}] */
+  function body(r, m) { return { x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, r, m }; }
+
+  /** opts: { players: [{id, side}], seconds, goalLimit } */
   function create(opts) {
     opts = opts || {};
-    const S = { players: [], ball: { x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, hitCd: 0, wallCd: 0 }, ev: [], tick: 0,
-                phase: 'countdown', t: C.COUNT, clock: opts.seconds || C.MATCH, seconds: opts.seconds || C.MATCH,
-                ot: false, otT: 0, score: [0, 0], lastGoal: -1, winner: -1, lastTouch: -1 };
-    for (const p of opts.players || []) S.players.push(newPlayer(p.id, p.team ? 1 : 0));
+    const S = {
+      ball: body(C.BR, C.M_BALL), discs: [], ev: [], tick: 0,
+      phase: 'countdown', t: C.COUNT, clock: opts.seconds || C.MATCH, seconds: opts.seconds || C.MATCH,
+      goalLimit: opts.goalLimit || C.GOAL_LIMIT, ot: false, score: [0, 0], lastGoal: -1, winner: -1,
+      round: 0, rest: 0, shots: 0,
+      members: [[], []], owner: new Array(C.TEAM * 2).fill(-1), plans: new Array(C.TEAM * 2).fill(null), ready: {},
+      teams: [{ name: DEFAULT_NAMES[0], mascot: 0 }, { name: DEFAULT_NAMES[1], mascot: 1 }],
+    };
+    for (let i = 0; i < C.TEAM * 2; i++) { const d = body(C.DR, C.M_DISC); d.i = i; d.side = i < C.TEAM ? 0 : 1; S.discs.push(d); }
+    for (const p of opts.players || []) S.members[p.side ? 1 : 0].push(p.id);
+    assign(S);
     placeKickoff(S);
     return S;
   }
 
   function placeKickoff(S) {
-    const idx = [0, 0];
-    for (const p of S.players) {
-      const j = idx[p.team]++;
-      const off = 150 + j * 130;
-      p.x = p.team ? C.W / 2 + off : C.W / 2 - off;
-      p.y = C.FLOOR - C.PR;
-      p.vx = p.vy = 0; p.ground = true; p.slideT = 0; p.slideCd = 0; p.prevS = false;
-      p.face = p.team ? -1 : 1;
-      p.px = p.x; p.py = p.y;
-    }
-    const b = S.ball;
-    b.x = C.W / 2; b.y = 210; b.vx = b.vy = 0; b.px = b.x; b.py = b.y; b.hitCd = b.wallCd = 0;
+    S.discs.forEach((d) => {
+      const [fx, fy] = FORMATION[d.i % C.TEAM];
+      d.x = d.side ? C.W - fx : fx; d.y = fy; d.vx = d.vy = 0; d.px = d.x; d.py = d.y;
+    });
+    const b = S.ball; b.x = C.W / 2; b.y = C.H / 2; b.vx = b.vy = 0; b.px = b.x; b.py = b.y;
   }
 
-  /** Start the match over (same players and teams). */
+  /** Start the match over (same players, teams and team names). */
   function restart(S) {
-    S.score = [0, 0]; S.clock = S.seconds; S.ot = false; S.otT = 0; S.winner = -1; S.lastGoal = -1; S.lastTouch = -1;
-    S.phase = 'countdown'; S.t = C.COUNT; S.ev.length = 0;
+    S.score = [0, 0]; S.clock = S.seconds; S.ot = false; S.winner = -1; S.lastGoal = -1;
+    S.phase = 'countdown'; S.t = C.COUNT; S.rest = 0; S.shots = 0; S.round = 0; S.ev.length = 0;
+    S.plans.fill(null); S.ready = {};
     placeKickoff(S);
   }
 
-  function setInput(S, id, mask) {
-    const p = S.players.find((q) => q.id === id);
-    if (!p) return;
-    p.inp = { l: mask & 1, r: (mask >> 1) & 1, u: (mask >> 2) & 1, s: (mask >> 3) & 1 };
+  /** A team's name and mascot (an index 0..MASCOTS-1).  The name is tidied: capitals, no odd characters, at most NAME_MAX. */
+  function setTeam(S, side, name, mascot) {
+    const t = S.teams[side ? 1 : 0];
+    if (name !== undefined) t.name = String(name).replace(/[^A-Za-z0-9 _.!'-]/g, '').replace(/\s+/g, ' ').trim().slice(0, C.NAME_MAX).toUpperCase() || DEFAULT_NAMES[side ? 1 : 0];
+    if (mascot !== undefined && Number.isInteger(mascot) && mascot >= 0 && mascot < C.MASCOTS) t.mascot = mascot;
+    return t;
+  }
+
+  // ------------------------------------------------------------------ who moves which bobble
+  /** Share each team's six bobbles out evenly among its players (k-th bobble -> player k mod n).  A team with nobody
+   *  on it (the solo test) is commanded by everyone, in the same way. */
+  function assign(S) {
+    const all = S.members[0].concat(S.members[1]);
+    for (const d of S.discs) {
+      const k = d.i % C.TEAM, list = S.members[d.side].length ? S.members[d.side] : all;
+      S.owner[d.i] = list.length ? list[k % list.length] : -1;
+    }
+  }
+
+  function ownersOf(S, side) {
+    const out = new Set();
+    for (const d of S.discs) if (d.side === side && S.owner[d.i] >= 0) out.add(S.owner[d.i]);
+    return out;
+  }
+
+  /** Has every player of `side` locked in? */
+  function locked(S, side) {
+    for (const id of ownersOf(S, side)) if (!S.ready[id]) return false;
+    return true;
   }
 
   function removePlayer(S, id) {
-    const i = S.players.findIndex((q) => q.id === id);
-    if (i >= 0) S.players.splice(i, 1);
+    for (const m of S.members) { const i = m.indexOf(id); if (i >= 0) m.splice(i, 1); }
+    delete S.ready[id];
+    assign(S);
+    if (S.phase === 'plan') checkLocks(S);
   }
 
-  /** Events since the last call: ['c', n] countdown, ['go'], ['goal', team], ['hit', 0..1], ['wall', 0..1],
-   *  ['jump'], ['slide'], ['ot'], ['end', winner]. */
-  function takeEvents(S) { const e = S.ev.slice(); S.ev.length = 0; return e; }
+  // ------------------------------------------------------------------ planning
+  function startPlan(S) {
+    S.phase = 'plan'; S.round++; S.t = C.PLAN_TIME; S.rest = 0;
+    S.plans.fill(null); S.ready = {};
+    S.ev.push(['plan', S.round]);
+  }
+
+  /** Set (or, with a tiny flick, clear) the planned flick for one of your bobbles.  (ax, ay) is a fraction of full power:
+   *  its direction is where the bobble will go, its length (clamped to 1) is the power.  Only during PLAN, only for a bobble
+   *  you command, and only while you haven't locked in.  Returns true if it was accepted. */
+  function setPlan(S, pid, i, ax, ay) {
+    if (S.phase !== 'plan' || S.ready[pid]) return false;
+    if (!Number.isInteger(i) || i < 0 || i >= S.discs.length || S.owner[i] !== pid) return false;
+    if (typeof ax !== 'number' || typeof ay !== 'number' || !isFinite(ax) || !isFinite(ay)) return false;
+    const mag = Math.hypot(ax, ay);
+    if (mag < 0.05) { S.plans[i] = null; return true; }
+    const pw = Math.min(1, mag);
+    S.plans[i] = { ax: ax / mag * pw, ay: ay / mag * pw };
+    return true;
+  }
+
+  /** Lock in (or unlock) your plan.  When every player has locked in, the round plays out. */
+  function setReady(S, pid, v) {
+    if (S.phase !== 'plan' || !(ownersOf(S, 0).has(pid) || ownersOf(S, 1).has(pid))) return false;
+    S.ready[pid] = !!v;
+    if (!v) delete S.ready[pid];
+    checkLocks(S);
+    return true;
+  }
+
+  function checkLocks(S) { if (S.phase === 'plan' && locked(S, 0) && locked(S, 1)) execute(S); }
+
+  /** All the planned flicks happen now, together. */
+  function execute(S) {
+    let n = 0;
+    for (const d of S.discs) {
+      const p = S.plans[d.i];
+      if (p) { d.vx = p.ax * C.MAXV; d.vy = p.ay * C.MAXV; n++; }
+    }
+    S.plans.fill(null); S.ready = {};
+    if (!n) { S.ev.push(['pass']); startPlan(S); return; }             // nobody planned anything: plan again
+    S.phase = 'roll'; S.rest = 0; S.shots += n;
+    S.ev.push(['exec', n]);
+  }
+
+  // ------------------------------------------------------------------ physics
+  function collide(a, b, S) {
+    let dx = b.x - a.x, dy = b.y - a.y, dist = Math.hypot(dx, dy);
+    const min = a.r + b.r;
+    if (dist >= min) return;
+    if (dist < 1e-6) { dx = 1; dy = 0; dist = 1e-6; }
+    const nx = dx / dist, ny = dy / dist, ia = 1 / a.m, ib = 1 / b.m, over = min - dist;
+    a.x -= nx * over * ia / (ia + ib); a.y -= ny * over * ia / (ia + ib);
+    b.x += nx * over * ib / (ia + ib); b.y += ny * over * ib / (ia + ib);
+    const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (vn > 0) return;
+    const e = a === S.ball || b === S.ball ? C.E_BALL : C.E_DISC;
+    const j = -(1 + e) * vn / (ia + ib);
+    a.vx -= j * ia * nx; a.vy -= j * ia * ny; b.vx += j * ib * nx; b.vy += j * ib * ny;
+    S.hit = Math.max(S.hit, Math.min(1, -vn / 1100));
+    if (a === S.ball || b === S.ball) S.kick = Math.max(S.kick, Math.min(1, -vn / 1100));
+  }
+
+  function hitPost(b, px, py, S) {
+    const dx = b.x - px, dy = b.y - py, dist = Math.hypot(dx, dy), min = b.r + C.POST;
+    if (dist >= min) return;
+    const nx = dist < 1e-6 ? 1 : dx / dist, ny = dist < 1e-6 ? 0 : dy / dist;
+    b.x = px + nx * min; b.y = py + ny * min;
+    const vn = b.vx * nx + b.vy * ny;
+    if (vn < 0) { b.vx -= 1.8 * vn * nx; b.vy -= 1.8 * vn * ny; S.post = Math.max(S.post, Math.min(1, -vn / 900)); }
+  }
+
+  function walls(b, isBall, S) {
+    const r = b.r, e = C.E_WALL;
+    if (b.y < r) { b.y = r; if (b.vy < 0) { b.vy = -b.vy * e; S.wall = Math.max(S.wall, Math.min(1, -b.vy / 900)); } }
+    if (b.y > C.H - r) { b.y = C.H - r; if (b.vy > 0) { b.vy = -b.vy * e; S.wall = Math.max(S.wall, Math.min(1, b.vy / 900)); } }
+    const inMouth = isBall && b.y > C.GY0 && b.y < C.GY1;
+    if (!isBall || !inMouth) {                                              // the end walls (the ball may pass through the mouth)
+      if (b.x < r && !(isBall && b.x < 0)) { b.x = r; if (b.vx < 0) { b.vx = -b.vx * e; S.wall = Math.max(S.wall, Math.min(1, -b.vx / 900)); } }
+      if (b.x > C.W - r && !(isBall && b.x > C.W)) { b.x = C.W - r; if (b.vx > 0) { b.vx = -b.vx * e; S.wall = Math.max(S.wall, Math.min(1, b.vx / 900)); } }
+    }
+    if (isBall) {                                                           // inside a net: walls all round
+      if (b.x < 0 || b.x > C.W) {
+        b.y = clamp(b.y, C.GY0 + r, C.GY1 - r);
+        if (b.y <= C.GY0 + r || b.y >= C.GY1 - r) b.vy *= -0.4;
+      }
+      if (b.x < -C.NET + r) { b.x = -C.NET + r; if (b.vx < 0) b.vx *= -0.3; }
+      if (b.x > C.W + C.NET - r) { b.x = C.W + C.NET - r; if (b.vx > 0) b.vx *= -0.3; }
+    }
+  }
+
+  function slide(b, k, d, h, cap) {
+    let s = Math.hypot(b.vx, b.vy);
+    if (s === 0) return false;
+    if (s > cap) { b.vx *= cap / s; b.vy *= cap / s; s = cap; }
+    const s2 = s * Math.exp(-k * h) - d * h;
+    if (s2 < C.REST * 0.75) { b.vx = b.vy = 0; return false; }
+    b.vx *= s2 / s; b.vy *= s2 / s;
+    return s2 > C.REST;
+  }
+
+  /** One physics sub-step.  Returns true if anything is still moving. */
+  function physics(S, h) {
+    let moving = false;
+    const all = S.discs.concat(S.ball);
+    for (const b of all) { b.x += b.vx * h; b.y += b.vy * h; }
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) collide(all[i], all[j], S);
+    for (const b of all) {
+      const isBall = b === S.ball;
+      for (const [px, py] of POSTS) hitPost(b, px, py, S);
+      walls(b, isBall, S);
+      const mv = isBall ? slide(b, C.K_BALL, C.D_BALL, h, C.CAP_BALL) : slide(b, C.K_DISC, C.D_DISC, h, C.CAP_DISC);
+      if (mv) moving = true;
+    }
+    return moving;
+  }
 
   // ------------------------------------------------------------------ the step
-  function step(S, dt) {
-    dt = dt || C.STEP;
+  function step(S) {
     S.tick++;
-    for (const p of S.players) { p.px = p.x; p.py = p.y; }
-    S.ball.px = S.ball.x; S.ball.py = S.ball.y;
-
-    if (S.phase === 'countdown') {
-      const before = Math.ceil(S.t);
-      S.t -= dt;
-      if (S.t > 0 && Math.ceil(S.t) !== before) S.ev.push(['c', Math.ceil(S.t)]);
-      if (S.t <= 0) { S.phase = 'play'; S.t = 0; S.ev.push(['go']); }
-    } else if (S.phase === 'play') {
-      if (!S.ot) {
-        S.clock -= dt;
-        if (S.clock <= 0) {
-          S.clock = 0;
-          if (S.score[0] === S.score[1]) { S.ot = true; S.otT = 0; S.ev.push(['ot']); } else finish(S);
+    const all = S.discs.concat(S.ball);
+    for (const b of all) { b.px = b.x; b.py = b.y; }
+    const dt = C.STEP;
+    switch (S.phase) {
+      case 'countdown': {
+        const before = Math.ceil(S.t);
+        S.t -= dt;
+        if (Math.ceil(S.t) < before && S.t > 0) S.ev.push(['c', Math.ceil(S.t)]);
+        if (S.t <= 0) { S.ev.push(['go']); startPlan(S); }
+        return;
+      }
+      case 'plan': case 'roll': case 'goal': {
+        S.hit = S.kick = S.wall = S.post = 0;
+        let moving = false;
+        for (let i = 0; i < C.SUB; i++) if (physics(S, dt / C.SUB)) moving = true;
+        if (S.hit > 0.1) S.ev.push([S.kick > 0.1 ? 'kick' : 'hit', +Math.max(S.hit, S.kick).toFixed(2)]);
+        if (S.post > 0.15) S.ev.push(['post', +S.post.toFixed(2)]);
+        else if (S.wall > 0.2) S.ev.push(['wall', +S.wall.toFixed(2)]);
+        if (S.phase === 'goal') { S.t -= dt; if (S.t <= 0) afterGoal(S); return; }
+        if (!S.ot) S.clock = Math.max(0, S.clock - dt);
+        if (S.phase === 'roll') {
+          const g = goalAt(S);
+          if (g >= 0) return scored(S, g);
+          S.rest = moving ? 0 : S.rest + dt;
+          if (S.rest >= C.REST_T) endRound(S);
+        } else {                                                          // plan
+          S.t -= dt;
+          if (S.t <= 0) execute(S);
+          else if (S.clock <= 0 && !S.ot) judge(S);
         }
-      } else {
-        S.otT += dt;
-        if (S.otT >= C.OT) finish(S);
+        return;
       }
-    }
-
-    if (S.phase === 'play' || S.phase === 'goal') {
-      movePlayers(S, dt);
-      stepBall(S, dt);
-    }
-    if (S.phase === 'play') checkGoal(S);
-    else if (S.phase === 'goal') {
-      S.t -= dt;
-      if (S.t <= 0) {
-        if (S.ot) finish(S);
-        else { placeKickoff(S); S.phase = 'countdown'; S.t = C.KICKOFF_COUNT; }
-      }
+      default: return;                                                    // over
     }
   }
 
-  function finish(S) {
-    S.phase = 'over';
-    S.winner = S.score[0] === S.score[1] ? -1 : S.score[0] > S.score[1] ? 0 : 1;
-    S.ev.push(['end', S.winner]);
-  }
-
-  function checkGoal(S) {
+  /** 0 / 1 = the team that just scored, -1 = no goal. */
+  function goalAt(S) {
     const b = S.ball;
-    let team = -1;
-    if (b.x + C.BR < 0 && b.y > C.BAR) team = 1;                       // into the left net: magenta scores
-    else if (b.x - C.BR > C.W && b.y > C.BAR) team = 0;
-    if (team < 0) return;
-    S.score[team]++;
-    S.lastGoal = team;
-    S.phase = 'goal'; S.t = C.GOAL_PAUSE;
-    S.ev.push(['goal', team]);
+    if (b.y <= C.GY0 || b.y >= C.GY1) return -1;
+    if (b.x + b.r < 0) return 1;
+    if (b.x - b.r > C.W) return 0;
+    return -1;
   }
 
-  function movePlayers(S, dt) {
-    for (const p of S.players) {
-      const i = p.inp;
-      const dir = (i.r ? 1 : 0) - (i.l ? 1 : 0);
-      if (dir) p.face = dir;
-      p.slideCd = Math.max(0, p.slideCd - dt);
-
-      if (i.s && !p.prevS && p.ground && p.slideCd <= 0 && p.slideT <= 0) {
-        p.slideT = C.SLIDE_T; p.slideCd = C.SLIDE_CD;
-        if (dir) p.face = dir;
-        p.vx = p.face * C.SLIDE_V;
-        S.ev.push(['slide']);
-      }
-      p.prevS = !!i.s;
-
-      if (p.slideT > 0) {
-        p.slideT -= dt;
-        p.vx *= 1 - 1.2 * dt;
-      } else if (dir) {
-        p.vx = approach(p.vx, dir * C.RUN, (p.ground ? C.ACC_G : C.ACC_A) * dt);
-      } else {
-        p.vx = approach(p.vx, 0, (p.ground ? C.FRIC : C.FRIC * 0.25) * dt);
-      }
-
-      if (i.u && p.ground && p.slideT <= 0) { p.vy = -C.JUMP; p.ground = false; S.ev.push(['jump']); }
-      const g = C.GRAV_P * (p.vy < 0 && !i.u ? 2.2 : 1);               // let go of jump = short hop
-      p.vy += g * dt;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.ground = false;
-      bound(p);
-    }
-    // slimes bump into each other like soft balls and can stand on each other's heads
-    for (let a = 0; a < S.players.length; a++) {
-      for (let c = a + 1; c < S.players.length; c++) {
-        const A = S.players[a], B = S.players[c];
-        const dx = B.x - A.x, dy = B.y - A.y, min = C.PR * 2;
-        const d = Math.hypot(dx, dy);
-        if (d >= min) continue;
-        const nx = d > 1e-6 ? dx / d : 1, ny = d > 1e-6 ? dy / d : 0, o = (min - d) / 2;
-        A.x -= nx * o; A.y -= ny * o; B.x += nx * o; B.y += ny * o;
-        const vn = (B.vx - A.vx) * nx + (B.vy - A.vy) * ny;
-        if (vn < 0) { const j = -1.2 * vn / 2; A.vx -= nx * j; A.vy -= ny * j; B.vx += nx * j; B.vy += ny * j; }
-        if (ny < -0.6) B.ground = true; else if (ny > 0.6) A.ground = true;
-      }
-    }
-    for (const p of S.players) bound(p);
+  function scored(S, side) {
+    S.score[side]++; S.lastGoal = side;
+    S.phase = 'goal'; S.t = C.GOAL_PAUSE; S.plans.fill(null); S.ready = {};
+    S.ev.push(['goal', side]);
   }
 
-  function bound(p) {
-    if (p.y >= C.FLOOR - C.PR) { p.y = C.FLOOR - C.PR; if (p.vy > 0) p.vy = 0; p.ground = true; }
-    if (p.y < C.PR) { p.y = C.PR; if (p.vy < 0) p.vy = 0; }
-    if (p.x < C.PR) { p.x = C.PR; if (p.vx < 0) p.vx = 0; }
-    if (p.x > C.W - C.PR) { p.x = C.W - C.PR; if (p.vx > 0) p.vx = 0; }
+  function afterGoal(S) {
+    const side = S.lastGoal;
+    if (S.ot || S.score[side] >= S.goalLimit) return finish(S, side);
+    if (S.clock <= 0 && judge(S)) return;
+    placeKickoff(S);
+    S.ev.push(['kick-off']);
+    startPlan(S);
   }
 
-  function stepBall(S, dt) {
-    const b = S.ball, n = 2, h = dt / n;
-    b.hitCd = Math.max(0, b.hitCd - dt); b.wallCd = Math.max(0, b.wallCd - dt);
-    for (let k = 0; k < n; k++) {
-      b.vy += C.GRAV_B * h;
-      const dr = Math.max(0, 1 - C.DRAG * h);
-      b.vx *= dr; b.vy *= dr;
-      const sp = Math.hypot(b.vx, b.vy);
-      if (sp > C.BALL_MAX) { b.vx *= C.BALL_MAX / sp; b.vy *= C.BALL_MAX / sp; }
-      b.x += b.vx * h; b.y += b.vy * h;
-      for (const p of S.players) collidePlayer(S, b, p);
-      for (const s of SEGS) collideSeg(S, b, s);                        // walls last: a slime can't squeeze the ball out of the world
-      containBall(b);
-    }
-    if (b.y >= C.FLOOR - C.BR - 0.6) b.vx *= 1 - 0.6 * dt;             // rolling friction
-    if (!isFinite(b.x) || !isFinite(b.y)) { b.x = C.W / 2; b.y = 200; b.vx = b.vy = 0; }
+  /** The clock has run out: the leader wins, a tie goes to sudden death.  Returns true if the match ended. */
+  function judge(S) {
+    if (S.score[0] !== S.score[1]) { finish(S, S.score[0] > S.score[1] ? 0 : 1); return true; }
+    if (!S.ot) { S.ot = true; S.ev.push(['ot']); }
+    return false;
   }
 
-  /** Last-resort bounds, for the rare frame where a slime pins the ball against a wall. */
-  function containBall(b) {
-    if (b.y > C.FLOOR - C.BR) { b.y = C.FLOOR - C.BR; if (b.vy > 0) b.vy = 0; }
-    if (b.y < C.BR) { b.y = C.BR; if (b.vy < 0) b.vy = 0; }
-    if (b.y < C.BAR) {                                                 // above the bar the end walls are solid
-      if (b.x < C.BR) { b.x = C.BR; if (b.vx < 0) b.vx = 0; }
-      if (b.x > C.W - C.BR) { b.x = C.W - C.BR; if (b.vx > 0) b.vx = 0; }
-    }
-    if (b.x < -C.NET + C.BR) { b.x = -C.NET + C.BR; if (b.vx < 0) b.vx = 0; }
-    if (b.x > C.W + C.NET - C.BR) { b.x = C.W + C.NET - C.BR; if (b.vx > 0) b.vx = 0; }
+  function finish(S, winner) {
+    S.phase = 'over'; S.winner = winner;
+    S.ev.push(['end', winner]);
   }
 
-  function collideSeg(S, b, s) {
-    const ax = s[0], ay = s[1], bx = s[2], by = s[3];
-    const abx = bx - ax, aby = by - ay;
-    const t = clamp(((b.x - ax) * abx + (b.y - ay) * aby) / (abx * abx + aby * aby), 0, 1);
-    const cx = ax + abx * t, cy = ay + aby * t;
-    let dx = b.x - cx, dy = b.y - cy;
-    const d = Math.hypot(dx, dy);
-    if (d >= C.BR) return;
-    let nx, ny;
-    if (d < 1e-6) { nx = s[5]; ny = s[6]; } else { nx = dx / d; ny = dy / d; }
-    b.x += nx * (C.BR - d); b.y += ny * (C.BR - d);
-    const vn = b.vx * nx + b.vy * ny;
-    if (vn < 0) {
-      const e = -vn < 60 ? 0 : s[4];                                   // tiny bounces just settle
-      b.vx -= (1 + e) * vn * nx; b.vy -= (1 + e) * vn * ny;
-      if (-vn > 260 && b.wallCd <= 0) { S.ev.push(['wall', Math.min(1, -vn / 1000)]); b.wallCd = 0.1; }
-    }
+  function endRound(S) {
+    if (S.clock <= 0 && !S.ot && judge(S)) return;
+    startPlan(S);
   }
 
-  function collidePlayer(S, b, p) {
-    let dx = b.x - p.x, dy = b.y - p.y;
-    let d = Math.hypot(dx, dy);
-    const min = C.PR + C.BR;
-    if (d >= min) return;
-    if (d < 1e-6) { dx = 0; dy = -1; d = 1; }
-    const nx = dx / d, ny = dy / d;
-    b.x = p.x + nx * min; b.y = p.y + ny * min;
-    const vn = (b.vx - p.vx) * nx + (b.vy - p.vy) * ny;                // closing speed (negative = approaching)
-    if (vn >= 0) return;
-    const j = -(1 + 0.82) * vn + (p.slideT > 0 ? 330 : 0);             // sliding into the ball is a proper kick
-    b.vx += nx * j; b.vy += ny * j;
-    if (-vn > 110) {                                                   // even a light touch should send it off
-      const after = (b.vx - p.vx) * nx + (b.vy - p.vy) * ny;
-      if (after < 200) { b.vx += nx * (200 - after); b.vy += ny * (200 - after); }
-    }
-    S.lastTouch = p.id;
-    if (-vn > 110 && b.hitCd <= 0) { S.ev.push(['hit', Math.min(1, -vn / 900)]); b.hitCd = 0.08; }
-  }
+  /** Events since the last call: ['c', n] countdown, ['go'], ['plan', round] (a new round of planning), ['exec', n] (n flicks
+   *  happen now), ['kick', 0..1] (the ball was struck), ['hit', 0..1] (bobbles met), ['wall', 0..1], ['post', 0..1],
+   *  ['goal', side], ['kick-off'], ['pass'] (nobody planned a thing), ['ot'], ['end', winner]. */
+  function takeEvents(S) { const e = S.ev.slice(); S.ev.length = 0; return e; }
 
   // ------------------------------------------------------------------ snapshots (host -> guests)
   const r1 = (v) => Math.round(v * 10) / 10;
 
-  /** Compact JSON-able snapshot.  `events` are the host's events since the last snapshot. */
+  /** Compact JSON-able snapshot.  `events` are the host's events since the last snapshot.  Plans are NOT in it. */
   function snapshot(S, events) {
+    const d = [];
+    for (const q of S.discs) d.push(r1(q.x), r1(q.y));
     return {
       k: 's', tk: S.tick, ph: S.phase, t: +S.t.toFixed(2), c: +S.clock.toFixed(1), ot: S.ot ? 1 : 0,
-      sc: S.score.slice(), w: S.winner, lg: S.lastGoal,
-      b: [r1(S.ball.x), r1(S.ball.y), Math.round(S.ball.vx), Math.round(S.ball.vy)],
-      p: S.players.map((p) => [p.id, p.team, r1(p.x), r1(p.y), Math.round(p.vx), Math.round(p.vy),
-        (p.ground ? 1 : 0) | (p.slideT > 0 ? 2 : 0) | (p.face > 0 ? 4 : 0)]),
+      sc: S.score.slice(), w: S.winner, lg: S.lastGoal, rd: S.round, sh: S.shots,
+      lk: [locked(S, 0) && S.phase === 'plan' ? 1 : 0, locked(S, 1) && S.phase === 'plan' ? 1 : 0],
+      rg: Object.keys(S.ready).map(Number), ow: S.owner.slice(),
+      tm: [[S.teams[0].name, S.teams[0].mascot], [S.teams[1].name, S.teams[1].mascot]],
+      b: [r1(S.ball.x), r1(S.ball.y), Math.round(S.ball.vx), Math.round(S.ball.vy)], d,
       ev: events || [],
     };
   }
 
   /** The renderer's view of a snapshot message (also what view() produces from the live sim). */
   function parseSnapshot(m) {
+    const discs = [];
+    for (let i = 0; i < m.d.length / 2; i++) discs.push({ i, side: i < C.TEAM ? 0 : 1, x: m.d[2 * i], y: m.d[2 * i + 1] });
     return {
-      tk: m.tk, ph: m.ph, t: m.t, clock: m.c, ot: !!m.ot, score: m.sc, winner: m.w, lastGoal: m.lg,
-      ball: { x: m.b[0], y: m.b[1], vx: m.b[2], vy: m.b[3] },
-      players: m.p.map((q) => ({ id: q[0], team: q[1], x: q[2], y: q[3], vx: q[4], vy: q[5],
-                                 ground: !!(q[6] & 1), slide: !!(q[6] & 2), face: q[6] & 4 ? 1 : -1 })),
-      ev: m.ev || [],
+      tk: m.tk, ph: m.ph, t: m.t, clock: m.c, ot: !!m.ot, score: m.sc, winner: m.w, lastGoal: m.lg, round: m.rd, shots: m.sh,
+      locked: m.lk, ready: m.rg, owners: m.ow, teams: m.tm.map((q) => ({ name: q[0], mascot: q[1] })),
+      ball: { x: m.b[0], y: m.b[1], vx: m.b[2], vy: m.b[3] }, discs, ev: m.ev || [],
     };
   }
 
@@ -310,29 +364,25 @@
     const L = (a, b) => a + (b - a) * alpha;
     return {
       tk: S.tick, ph: S.phase, t: S.t, clock: S.clock, ot: S.ot, score: S.score, winner: S.winner, lastGoal: S.lastGoal,
+      round: S.round, shots: S.shots, locked: [locked(S, 0) && S.phase === 'plan', locked(S, 1) && S.phase === 'plan'],
+      ready: Object.keys(S.ready).map(Number), owners: S.owner, teams: S.teams,
       ball: { x: L(S.ball.px, S.ball.x), y: L(S.ball.py, S.ball.y), vx: S.ball.vx, vy: S.ball.vy },
-      players: S.players.map((p) => ({ id: p.id, team: p.team, x: L(p.px, p.x), y: L(p.py, p.y), vx: p.vx, vy: p.vy,
-                                       ground: p.ground, slide: p.slideT > 0, face: p.face })),
+      discs: S.discs.map((d) => ({ i: d.i, side: d.side, x: L(d.px, d.x), y: L(d.py, d.y) })),
       ev: [],
     };
   }
 
-  /** Blend two views (k = 0 gives a, 1 gives b).  Discrete things come from whichever is nearer. */
+  /** Blend two views (k = 0 gives a, 1 gives b).  Discrete things come from b. */
   function lerpView(a, b, k) {
-    const near = k < 0.5 ? a : b;
     const L = (x, y) => x + (y - x) * k;
-    const byId = new Map(a.players.map((p) => [p.id, p]));
     return {
-      tk: near.tk, ph: b.ph, t: L(a.t, b.t), clock: L(a.clock, b.clock), ot: b.ot, score: b.score, winner: b.winner,
-      lastGoal: b.lastGoal,
-      ball: { x: L(a.ball.x, b.ball.x), y: L(a.ball.y, b.ball.y), vx: near.ball.vx, vy: near.ball.vy },
-      players: b.players.map((q) => {
-        const p = byId.get(q.id) || q;
-        return { id: q.id, team: q.team, x: L(p.x, q.x), y: L(p.y, q.y), vx: q.vx, vy: q.vy, ground: q.ground, slide: q.slide, face: q.face };
-      }),
+      tk: k < 0.5 ? a.tk : b.tk, ph: b.ph, t: L(a.t, b.t), clock: L(a.clock, b.clock), ot: b.ot, score: b.score, winner: b.winner,
+      lastGoal: b.lastGoal, round: b.round, shots: b.shots, locked: b.locked, ready: b.ready, owners: b.owners, teams: b.teams,
+      ball: { x: L(a.ball.x, b.ball.x), y: L(a.ball.y, b.ball.y), vx: b.ball.vx, vy: b.ball.vy },
+      discs: b.discs.map((q, i) => { const p = a.discs[i] || q; return { i: q.i, side: q.side, x: L(p.x, q.x), y: L(p.y, q.y) }; }),
       ev: [],
     };
   }
 
-  return { C, create, restart, step, setInput, removePlayer, takeEvents, snapshot, parseSnapshot, view, lerpView };
+  return { C, create, restart, step, setPlan, setReady, setTeam, removePlayer, takeEvents, snapshot, parseSnapshot, view, lerpView };
 }));
