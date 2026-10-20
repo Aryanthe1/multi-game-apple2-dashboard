@@ -47,7 +47,8 @@ Long-distance options are in [LONG_DISTANCE_PLAY.md](LONG_DISTANCE_PLAY.md).
 
 Each game has its own folder in [g3/web/games/](g3/web/games/README.md). **Bobble
 League** (top-down tactics, teams of 6 shared between the players, 2-8 players) is playable: see its
-[README](g3/web/games/bobble_league/README.md) for the rules and controls. The other
+[README](g3/web/games/bobble_league/README.md) for the rules and controls (its **Arenas** mode adds four maps,
+the stadium, desert, tundra and rainforest, each with its own random event and minigame). The other
 five are placeholders: starting one shows a "game module not installed" screen with a
 live test of the room's game channel (see below).
 

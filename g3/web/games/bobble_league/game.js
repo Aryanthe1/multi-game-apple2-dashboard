@@ -33,7 +33,17 @@
   // Gameplay styles offered on the menu.  Add one here and it shows up as a card; `id` is sent to the guests with the start.
   const MODES = [
     { id: 'classic', name: 'CLASSIC', blurb: 'Top-down tactics. Six bobbles a team, shared between the players. Everyone plans a flick for each bobble at the same time, locks in, and they all fly at once. First to 3 wins.' },
+    { id: 'arenas', name: 'ARENAS', maps: true, blurb: 'The same game in four arenas. Each one plays differently and throws a random event at you: hecklers, sandstorms, frostbite, lightning.' },
   ];
+  // The arenas (the sim knows their physics and events by `id`; this is how they are shown).
+  const ARENAS = [
+    { id: 'stadium', name: 'THE STADIUM', icon: '🏟️', event: 'HECKLERS', blurb: 'Packed stands. Now and then an onlooker pelts one player: their bobbles are stuck until they win a wipe-off minigame, and their team has to carry on without them.' },
+    { id: 'desert', name: 'THE DESERT', icon: '🏜️', event: 'HAY BALES + SANDSTORMS', blurb: 'Sand drags everything. Hay bales roll across the pitch and knock bobbles about. A sandstorm starts a dig-out race: the winner\'s team gets the turn, the other team is locked in place.' },
+    { id: 'tundra', name: 'THE TUNDRA', icon: '❄️', event: 'SNOWSTORMS + FROSTBITE', blurb: 'Ice: everything slides. Snowstorms start a shake-it-off race like the desert\'s. Leave a bobble alone for more than 2 rounds and it gets frostbite: weak flicks, then frozen solid until another bobble knocks it.' },
+    { id: 'rainforest', name: 'THE RAINFOREST', icon: '🌧️', event: 'LIGHTNING', blurb: 'The pitch is slick with rain. Lightning strikes after a moment\'s warning and stuns the closest bobbles for 10 seconds.' },
+  ];
+  const ARENA_FX = { stadium: ['🍅', 'HECKLE'], desert: ['🌾', 'HAY'], tundra: ['❄️', 'FROST'], rainforest: ['⚡', 'BOLT'] };
+  const BLOCKED = { 1: 'STUNNED', 2: 'STUCK', 3: 'FROZEN SOLID', 4: 'LOCKED IN PLACE' };
   const RATE = { lan: 30, relay: 20, online: 15, lora: 4 };     // snapshots per second while things move, at most
   const IDLE_RATE = 5;                                            // ...and while everyone is planning
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -42,6 +52,122 @@
   function mulberry(seed) {
     let a = seed >>> 0;
     return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+
+  // ------------------------------------------------------------------ arena artwork (painted once into the cached background)
+  const LINE = { classic: 'rgba(255,255,255,.82)', stadium: 'rgba(255,255,255,.85)', desert: 'rgba(255,250,230,.9)', tundra: 'rgba(22,66,140,.85)', rainforest: 'rgba(235,255,240,.82)' };
+  const CROWD = ['#f046d8', '#27d3f2', '#ffd43b', '#ff5c7a', '#ffffff', '#7cf29a', '#9fb0ff', '#ff9f43'];
+
+  // the area around the pitch: x -MX..W+MX, y -TM..H+BM
+  function paintSurround(c, map, rnd) {
+    const X0 = -MX, Y0 = -TM, X1 = C.W + MX, Y1 = C.H + BM;
+    const vgrad = (a, b, d) => { const g = c.createLinearGradient(0, Y0, 0, Y1); g.addColorStop(0, a); g.addColorStop(0.5, b); g.addColorStop(1, d || a); return g; };
+    const ringOnly = (fn) => { c.save(); c.beginPath(); c.rect(X0, Y0, VW, VH); c.rect(0, 0, C.W, C.H); c.clip('evenodd'); fn(); c.restore(); };      // draw in the margins only
+    if (map === 'stadium') {
+      c.fillStyle = vgrad('#171a3f', '#0d1030'); c.fillRect(X0, Y0, VW, VH);
+      ringOnly(() => {
+        for (let y = Y0 + 6; y < Y1; y += 10) for (let x = X0 + 4; x < X1; x += 11) {            // the crowd
+          const px = x + (rnd() - 0.5) * 3, py = y + (rnd() - 0.5) * 2, col = CROWD[Math.floor(rnd() * CROWD.length)];
+          c.fillStyle = 'rgba(0,0,0,.35)'; c.fillRect(px - 4, py + 2, 8, 6);
+          c.fillStyle = col; c.globalAlpha = 0.55 + rnd() * 0.4; c.beginPath(); c.arc(px, py, 4, 0, 7); c.fill();
+          c.fillStyle = col; c.fillRect(px - 4, py + 3, 8, 4); c.globalAlpha = 1;
+        }
+      });
+      const ads = ['BOBBLE LEAGUE', 'G3 ARCADE', 'FLICK IT', 'LOCK IN!'], cols = ['#f046d8', '#27d3f2', '#ffd43b', '#7cf29a'];
+      c.font = '8px "Press Start 2P", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      for (const [y, h] of [[-16, 13], [C.H + 3, 13]]) for (let i = 0; i < 4; i++) {            // advertising boards along the touchlines
+        c.fillStyle = cols[i]; c.fillRect(i * 250, y, 250, h); c.fillStyle = 'rgba(4,6,30,.88)'; c.fillRect(i * 250 + 3, y + 2, 244, h - 4);
+        c.fillStyle = cols[i]; c.fillText(ads[i], i * 250 + 125, y + h / 2 + 1);
+      }
+      for (const [x, y] of [[X0 + 10, Y0 + 8], [X1 - 10, Y0 + 8], [X0 + 10, Y1 - 8], [X1 - 10, Y1 - 8]]) {      // floodlights
+        const g = c.createRadialGradient(x, y, 2, x, y, 150); g.addColorStop(0, 'rgba(255,248,220,.7)'); g.addColorStop(1, 'rgba(255,248,220,0)');
+        c.fillStyle = g; c.fillRect(x - 150, y - 150, 300, 300);
+      }
+    } else if (map === 'desert') {
+      c.fillStyle = vgrad('#8a5a2b', '#b9854a'); c.fillRect(X0, Y0, VW, VH);
+      ringOnly(() => {
+        for (let n = 0; n < 40; n++) { c.fillStyle = n % 2 ? 'rgba(255,220,150,.12)' : 'rgba(80,40,10,.14)'; const x = X0 + rnd() * VW, y = Y0 + rnd() * VH; c.beginPath(); c.ellipse(x, y, 40 + rnd() * 90, 8 + rnd() * 16, 0, 0, 7); c.fill(); }
+        for (let n = 0; n < 16; n++) { const x = X0 + rnd() * VW, y = Y0 + rnd() * VH; c.fillStyle = '#6d5a49'; c.beginPath(); c.ellipse(x, y, 7 + rnd() * 7, 5 + rnd() * 4, 0, 0, 7); c.fill(); c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.ellipse(x - 2, y - 2, 4, 2, 0, 0, 7); c.fill(); }
+        for (const [x, y, s] of [[-70, -40, 1], [160, -48, 0.8], [640, -44, 1.1], [930, -40, 0.9], [-85, 520, 1], [330, C.H + 44, 1.05], [760, C.H + 40, 0.85], [1075, 500, 1], [1070, 110, 0.9], [-80, 120, 0.8]]) {      // cacti
+          c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(x + 6 * s, y + 24 * s, 16 * s, 5 * s, 0, 0, 7); c.fill();
+          c.fillStyle = '#2f8f4a'; c.strokeStyle = '#1c5f31'; c.lineWidth = 2;
+          const rr = (rx, ry, w, h) => { c.beginPath(); c.roundRect ? c.roundRect(rx, ry, w, h, w / 2) : c.rect(rx, ry, w, h); c.fill(); c.stroke(); };
+          rr(x - 6 * s, y - 24 * s, 12 * s, 48 * s); rr(x - 20 * s, y - 12 * s, 9 * s, 24 * s); rr(x + 11 * s, y - 4 * s, 9 * s, 22 * s);
+        }
+      });
+    } else if (map === 'tundra') {
+      c.fillStyle = vgrad('#e7f6fd', '#b4d9ee'); c.fillRect(X0, Y0, VW, VH);
+      ringOnly(() => {
+        for (let n = 0; n < 34; n++) { c.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.4})`; c.beginPath(); c.ellipse(X0 + rnd() * VW, Y0 + rnd() * VH, 30 + rnd() * 80, 6 + rnd() * 12, 0, 0, 7); c.fill(); }
+        for (const [x, y, s] of [[-85, -30, 1], [-30, -50, 0.8], [190, -46, 0.9], [470, -52, 1.1], [740, -44, 0.85], [980, -48, 1], [1075, 40, 0.9], [-90, 540, 1], [140, C.H + 46, 0.9], [560, C.H + 50, 1.1], [880, C.H + 44, 0.85], [1070, 500, 1]]) {      // pines
+          c.fillStyle = 'rgba(0,30,60,.2)'; c.beginPath(); c.ellipse(x + 8 * s, y + 30 * s, 22 * s, 6 * s, 0, 0, 7); c.fill();
+          c.fillStyle = '#5a3b22'; c.fillRect(x - 3 * s, y + 18 * s, 6 * s, 14 * s);
+          for (let t = 0; t < 3; t++) {
+            const ty = y - 22 * s + t * 16 * s, w = (14 + t * 7) * s;
+            c.fillStyle = '#1d5a46'; c.beginPath(); c.moveTo(x, ty - 14 * s); c.lineTo(x + w, ty + 12 * s); c.lineTo(x - w, ty + 12 * s); c.closePath(); c.fill();
+            c.fillStyle = '#f4fbff'; c.beginPath(); c.moveTo(x, ty - 14 * s); c.lineTo(x + w * 0.55, ty + 1 * s); c.lineTo(x - w * 0.55, ty + 1 * s); c.closePath(); c.fill();
+          }
+        }
+      });
+    } else if (map === 'rainforest') {
+      c.fillStyle = vgrad('#03130d', '#0a3524'); c.fillRect(X0, Y0, VW, VH);
+      ringOnly(() => {
+        const greens = ['#0f5a31', '#157a42', '#1b9a52', '#0b4126', '#23b363'];
+        for (let n = 0; n < 150; n++) {                                                             // leaves
+          const x = X0 + rnd() * VW, y = Y0 + rnd() * VH, a = rnd() * 6.3, l = 22 + rnd() * 40;
+          c.save(); c.translate(x, y); c.rotate(a); c.fillStyle = greens[Math.floor(rnd() * greens.length)];
+          c.beginPath(); c.ellipse(0, 0, l, l * 0.3, 0, 0, 7); c.fill();
+          c.strokeStyle = 'rgba(0,0,0,.25)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(-l, 0); c.lineTo(l, 0); c.stroke(); c.restore();
+        }
+        for (const [x, y] of [[X0 + 24, Y0 + 20], [X1 - 24, Y0 + 20], [X0 + 24, Y1 - 20], [X1 - 24, Y1 - 20]]) {     // palm fronds from the corners
+          for (let f = 0; f < 7; f++) {
+            const a = (x < C.W / 2 ? 0 : Math.PI) + (y < C.H / 2 ? 1 : -1) * (0.15 + f * 0.2) * (x < C.W / 2 ? 1 : -1), l = 70 + (f % 2) * 22;
+            c.strokeStyle = f % 2 ? '#1b9a52' : '#157a42'; c.lineWidth = 9; c.lineCap = 'round';
+            c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l * 0.5, y + Math.sin(a) * l * 0.5 - 12, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
+          }
+          c.lineCap = 'butt';
+        }
+      });
+    } else {
+      c.fillStyle = vgrad('#0d0a2e', '#071225'); c.fillRect(X0, Y0, VW, VH);
+    }
+  }
+
+  // the playing surface
+  function paintGround(c, map, rnd) {
+    if (map === 'desert') {
+      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#d9b36a' : '#d1a85f'; c.fillRect(i * 100, 0, 100, C.H); }
+      c.strokeStyle = 'rgba(140,90,30,.2)'; c.lineWidth = 2;
+      for (let n = 0; n < 70; n++) { const x = rnd() * C.W, y = rnd() * C.H; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + 30, y - 7, x + 60, y); c.quadraticCurveTo(x + 90, y + 7, x + 120, y); c.stroke(); }
+      for (let n = 0; n < 1200; n++) { c.fillStyle = rnd() < 0.5 ? 'rgba(120,70,20,.16)' : 'rgba(255,240,200,.2)'; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2); }
+    } else if (map === 'tundra') {
+      const g = c.createLinearGradient(0, 0, C.W, C.H); g.addColorStop(0, '#d6f2fd'); g.addColorStop(0.5, '#bfe6f7'); g.addColorStop(1, '#a6d5ee');
+      c.fillStyle = g; c.fillRect(0, 0, C.W, C.H);
+      for (let i = 0; i < 10; i++) if (i % 2) { c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(i * 100, 0, 100, C.H); }
+      for (let n = 0; n < 30; n++) {                                                                 // cracks in the ice
+        let x = rnd() * C.W, y = rnd() * C.H, a = rnd() * 6.3;
+        c.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.55)' : 'rgba(60,120,180,.22)'; c.lineWidth = 1 + rnd() * 1.5;
+        c.beginPath(); c.moveTo(x, y);
+        for (let k = 0; k < 6; k++) { a += (rnd() - 0.5) * 1.2; x += Math.cos(a) * (18 + rnd() * 30); y += Math.sin(a) * (18 + rnd() * 30); c.lineTo(x, y); }
+        c.stroke();
+      }
+      c.fillStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.moveTo(120, 0); c.lineTo(300, 0); c.lineTo(100, C.H); c.lineTo(-80, C.H); c.closePath(); c.fill();     // the shine
+      c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.moveTo(560, 0); c.lineTo(620, 0); c.lineTo(420, C.H); c.lineTo(360, C.H); c.closePath(); c.fill();
+    } else if (map === 'rainforest') {
+      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#127a45' : '#0e6a3c'; c.fillRect(i * 100, 0, 100, C.H); }
+      for (let n = 0; n < 900; n++) { c.fillStyle = `rgba(150,255,170,${0.02 + rnd() * 0.04})`; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2 + rnd() * 4); }
+      for (let n = 0; n < 16; n++) {                                                                 // puddles
+        const x = 40 + rnd() * (C.W - 80), y = 30 + rnd() * (C.H - 60), rx = 30 + rnd() * 60, ry = 12 + rnd() * 22;
+        c.fillStyle = 'rgba(110,190,235,.2)'; c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, 7); c.fill();
+        c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 2; c.beginPath(); c.ellipse(x, y, rx * 0.7, ry * 0.6, 0, 3.6, 5.2); c.stroke();
+      }
+    } else {
+      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#1b9d55' : '#168c4a'; c.fillRect(i * 100, 0, 100, C.H); }
+      for (let n = 0; n < 900; n++) { c.fillStyle = `rgba(255,255,255,${0.015 + rnd() * 0.02})`; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2 + rnd() * 3); }
+    }
+    const lit = c.createRadialGradient(C.W / 2, C.H / 2, 60, C.W / 2, C.H / 2, C.W * 0.65);
+    lit.addColorStop(0, map === 'tundra' ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.1)'); lit.addColorStop(1, map === 'tundra' ? 'rgba(10,40,90,.22)' : map === 'rainforest' ? 'rgba(0,10,10,.5)' : 'rgba(0,12,30,.38)');
+    c.fillStyle = lit; c.fillRect(0, 0, C.W, C.H);
   }
 
   function mount(ctx) {
@@ -64,6 +190,7 @@
         <canvas id="blCanvas"></canvas>
         <div class="bl-over bl-menu" id="blMenu"></div>
         <div class="bl-over hidden" id="blOver"></div>
+        <div class="bl-pop" id="blPop"></div>
       </div>
       <div class="bl-bar">
         <button data-bl="ready" id="blReady" class="bl-lock" style="display:none"></button>
@@ -91,9 +218,11 @@
     let base = null, ivl = 50, lastTk = -1, latest = null;
 
     // ------------------------------------------------------------------ the menu: mode, then team names and mascots
-    let stage = 'menu', modeId = null, selMode = 0;               // 'menu' -> 'teams' -> 'play'
+    let stage = 'menu', modeId = null, selMode = 0;               // 'menu' -> ('maps' ->) 'teams' -> 'play'
+    let mapId = 'classic', selMap = 0;                            // the arena ('classic' is the plain pitch)
     const T = { names: [TEAM[0].name, TEAM[1].name], mascots: [0, 1], ready: [false, false] };      // what the team setup screen shows
-    const modeName = () => { const m = MODES.find((q) => q.id === modeId); return m ? m.name : 'MODE SELECT'; };
+    const arenaOf = (id) => ARENAS.find((q) => q.id === id);
+    const modeName = () => { const m = MODES.find((q) => q.id === modeId); return m ? m.name + (arenaOf(mapId) ? ' // ' + arenaOf(mapId).name : '') : 'MODE SELECT'; };
     const setModeLabel = () => { const el = wrap.querySelector('#blMode'); if (el) el.textContent = modeName(); };
 
     // the captain of a team (its first player) picks its name and mascot; alone in the room you are everybody's captain
@@ -107,7 +236,20 @@
     const canEdit = (side) => captainOf(side) === you();
     const playersOf = (side) => { const r = ctx.room(); return r ? (r.slots.length < 2 ? r.slots : r.slots.filter((s, i) => i % 2 === side)) : []; };
 
-    function renderStage() { if (stage === 'menu') renderMenu(); else if (stage === 'teams') renderSetup(false); }
+    function renderStage() { if (stage === 'menu') renderMenu(); else if (stage === 'maps') renderMaps(); else if (stage === 'teams') renderSetup(false); }
+
+    function renderMaps() {
+      menu.classList.remove('hidden', 'teams');
+      if (!isHost) {
+        menu.innerHTML = `<h2 class="bl-title">${esc(modeName())}</h2>
+          <div class="bl-sub">THE HOST IS CHOOSING THE ARENA<span class="cursor-blink">_</span></div>`;
+        return;
+      }
+      menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: CHOOSE YOUR ARENA</h2>
+        <div class="bl-modes bl-maps">${ARENAS.map((m, i) => `<button class="bl-mode bl-map m-${m.id} ${i === selMap ? 'sel' : ''}" data-bl="map" data-i="${i}"><b>${m.icon} ${m.name}</b><em class="bl-evt">EVENT: ${m.event}</em><span>${m.blurb}</span></button>`).join('')}</div>
+        <div class="bl-row"><button data-bl="back">[ &lt; BACK TO MODES ]</button></div>
+        <div class="bl-sub">CLICK OR PRESS ENTER TO CONTINUE // ARROWS TO CHOOSE</div>`;
+    }
 
     function renderMenu() {
       menu.classList.remove('hidden', 'teams');
@@ -144,7 +286,7 @@
       menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: PICK YOUR TEAMS</h2>
         <div class="bl-teams">${panelHTML(0)}${panelHTML(1)}</div>
         <div class="bl-sub">THE MATCH STARTS WHEN BOTH CAPTAINS ARE READY${isHost ? '' : ''}</div>
-        ${isHost ? '<div class="bl-row"><button data-bl="back">[ &lt; BACK TO MODES ]</button></div>' : ''}`;
+        ${isHost ? `<div class="bl-row"><button data-bl="back">[ &lt; BACK TO ${arenaOf(mapId) ? 'ARENAS' : 'MODES'} ]</button></div>` : ''}`;
     }
     function patchSetup() {
       for (const s of [0, 1]) {
@@ -161,14 +303,25 @@
     function chooseMode(i) {
       const m = MODES[i];
       if (!isHost || !m || stage !== 'menu') return;
-      modeId = m.id; selMode = i; stage = 'teams';
+      modeId = m.id; selMode = i; mapId = 'classic';
+      if (m.maps) { stage = 'maps'; setModeLabel(); broadcastSetup(); renderMaps(); goFullscreen(); G3.beep(660, 0.1, 'square'); return; }
+      toTeams();
+    }
+    function chooseMap(i) {                                        // host: the arena was picked, now the teams
+      const m = ARENAS[i];
+      if (!isHost || !m || stage !== 'maps') return;
+      mapId = m.id; selMap = i;
+      toTeams();
+    }
+    function toTeams() {
+      stage = 'teams';
       T.ready = [false, false];
       for (const s of [0, 1]) { T.names[s] = sim.teams[s].name; T.mascots[s] = sim.teams[s].mascot; }
       setModeLabel(); broadcastSetup(); renderSetup(true);
       goFullscreen();
       G3.beep(660, 0.1, 'square');
     }
-    function broadcastSetup() { ctx.send({ k: 'setup', mode: modeId, names: T.names.slice(), mascots: T.mascots.slice(), ready: T.ready.slice() }); }
+    function broadcastSetup() { ctx.send({ k: 'setup', st: stage, mode: modeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice(), ready: T.ready.slice() }); }
 
     // host: a captain changed their team (or pressed READY)
     function applyTeam(from, d) {
@@ -209,17 +362,21 @@
     });
 
     function beginMatch() {                                        // host: both captains are ready
-      stage = 'play'; plans = {}; lastRound = -1;
+      stage = 'play'; plans = {}; lastRound = -1; clearPops();
       menu.classList.add('hidden'); over.classList.add('hidden'); shownOver = false;
+      Sim.setMap(sim, mapId, (Math.random() * 4294967296) >>> 0);            // the seed makes the arena's random events
       Sim.restart(sim); acc = 0; lastTick = performance.now(); sinceSnap = 1e9; forceSnap = true;
-      ctx.send({ k: 'begin', mode: modeId, names: T.names.slice(), mascots: T.mascots.slice() });
+      ctx.send({ k: 'begin', mode: modeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice() });
       goFullscreen();
       G3.beep(880, 0.12, 'square');
     }
 
+    function goBack() {                                           // host: one step back from the team screen
+      if (stage === 'teams' && arenaOf(mapId)) { stage = 'maps'; mapId = 'classic'; setModeLabel(); broadcastSetup(); renderMaps(); } else showMenu();
+    }
     function showMenu() {                                         // host: back to the modes (also from a finished match)
       if (!isHost) return;
-      stage = 'menu'; modeId = null; drag = null; plans = {};
+      stage = 'menu'; modeId = null; mapId = 'classic'; drag = null; plans = {};
       over.classList.add('hidden'); shownOver = false;
       setModeLabel(); renderMenu();
       ctx.send({ k: 'menu' });
@@ -238,7 +395,7 @@
 
     function snapInterval() {
       const r = ctx.room();
-      if (sim && (sim.phase === 'plan' || sim.phase === 'over')) return 1000 / IDLE_RATE;     // nothing moves: a slow trickle keeps the timer honest
+      if (sim && (sim.phase === 'plan' || sim.phase === 'over' || sim.phase === 'storm')) return 1000 / IDLE_RATE;     // nothing moves: a slow trickle keeps the timer honest
       const guests = Math.max(1, (r ? r.slots.length : 2) - 1);
       let rate = RATE[r && r.transport] || 15;
       if (r && r.transport === 'online') rate = clamp(40 / guests, 4, rate);      // every guest is its own publish to every broker
@@ -246,7 +403,7 @@
       return 1000 / rate;
     }
 
-    const LOUD = new Set(['exec', 'goal', 'plan', 'end', 'go', 'pass', 'ot', 'kick-off', 'c']);       // worth a snapshot right now
+    const LOUD = new Set(['exec', 'goal', 'plan', 'end', 'go', 'pass', 'ot', 'kick-off', 'c', 'storm', 'storm-end', 'heckle', 'mini-end', 'omen', 'bales', 'bolt-warn', 'bolt', 'frost']);       // worth a snapshot right now
     function hostTick() {
       if (!sim || stage !== 'play') return;
       const now = performance.now();
@@ -317,7 +474,7 @@
     function discAt(v, p) {
       let best = null, bd = C.DR * 1.45;
       for (const d of v.discs) {
-        if (!mineDisc(v, d)) continue;
+        if (!mineDisc(v, d) || v.fx.block[d.i]) continue;               // stunned, stuck, frozen or locked bobbles can't be flicked
         const dd = Math.hypot(d.x - p.x, d.y - p.y);
         if (dd < bd) { bd = dd; best = d; }
       }
@@ -354,7 +511,9 @@
       if (drag) { drag.px = p.x; drag.py = p.y; return; }
       const v = lastView, d = canPlan(v) ? discAt(v, p) : null;
       hover = d ? d.i : -1;
-      canvas.style.cursor = d ? 'grab' : 'default';
+      hoverBlock = -1;
+      if (!d && v && stage === 'play' && v.ph === 'plan') for (const q of v.discs) if (mineDisc(v, q) && v.fx.block[q.i] && Math.hypot(q.x - p.x, q.y - p.y) < C.DR * 1.3) hoverBlock = q.i;
+      canvas.style.cursor = d ? 'grab' : hoverBlock >= 0 ? 'not-allowed' : 'default';
     });
     function release(e) {
       if (!drag) return;
@@ -380,6 +539,15 @@
         if (k === 'Enter' || k === 'Space' || k === 'NumpadEnter') { e.preventDefault(); chooseMode(selMode); }
         else if (['ArrowUp', 'ArrowLeft', 'KeyW', 'KeyA'].includes(k)) { e.preventDefault(); selMode = (selMode + MODES.length - 1) % MODES.length; renderMenu(); }
         else if (['ArrowDown', 'ArrowRight', 'KeyS', 'KeyD'].includes(k)) { e.preventDefault(); selMode = (selMode + 1) % MODES.length; renderMenu(); }
+        return;
+      }
+      if (stage === 'maps') {
+        if (!isHost) return;
+        const k = e.code;
+        if (k === 'Enter' || k === 'Space' || k === 'NumpadEnter') { e.preventDefault(); chooseMap(selMap); }
+        else if (k === 'Escape') { e.preventDefault(); showMenu(); }
+        else if (['ArrowUp', 'ArrowLeft', 'KeyW', 'KeyA'].includes(k)) { e.preventDefault(); selMap = (selMap + ARENAS.length - 1) % ARENAS.length; renderMaps(); }
+        else if (['ArrowDown', 'ArrowRight', 'KeyS', 'KeyD'].includes(k)) { e.preventDefault(); selMap = (selMap + 1) % ARENAS.length; renderMaps(); }
         return;
       }
       if (stage !== 'play') return;
@@ -415,21 +583,46 @@
       const a = b.dataset.bl;
       if (a === 'fs') toggleFullscreen();
       else if (a === 'mode') chooseMode(+b.dataset.i);
+      else if (a === 'map') chooseMap(+b.dataset.i);
       else if (a === 'mascot') sendTeam(+b.dataset.side, { mascot: +b.dataset.i });
       else if (a === 'teamready') sendTeam(+b.dataset.side, { ready: !T.ready[+b.dataset.side] });
-      else if (a === 'back' || a === 'menu') showMenu();
+      else if (a === 'back') goBack();
+      else if (a === 'menu') showMenu();
       else if (a === 'ready') toggleReady();
       else if (a === 'lobby') ctx.backToLobby();
       else if (a === 'leave') ctx.leave();
-      else if (a === 'rematch' && sim) { Sim.restart(sim); plans = {}; lastRound = -1; acc = 0; lastTick = performance.now(); forceSnap = true; shownOver = false; over.classList.add('hidden'); }
+      else if (a === 'rematch' && sim) { clearPops(); Sim.restart(sim); plans = {}; lastRound = -1; acc = 0; lastTick = performance.now(); forceSnap = true; shownOver = false; over.classList.add('hidden'); }
     });
+
+    // ------------------------------------------------------------------ arena minigames (on my own screen; the host hears how long I took)
+    const stageEl = wrap.querySelector('.bl-stage');
+    let mini = null, miniKey = '', miniDoneKey = '';
+    function sendMiniDone(ms) {
+      if (isHost) { Sim.miniDone(sim, 0, ms); forceSnap = true; }
+      else ctx.send({ k: 'mini', ms: Math.round(ms) }, true);
+    }
+    function syncMini(v) {
+      const m = stage === 'play' && v && v.fx.mini;
+      const mine = !!m && m.who.includes(you()) && (!m.race || v.ph === 'storm') && !!window.BobbleMini;
+      const key = m ? `${m.k}|${m.race ? v.round : ''}|${m.what}|${m.who.join()}` : '';
+      if (mini && (!mine || miniKey !== key)) { mini.stop(); mini = null; }
+      if (!m) miniDoneKey = '';
+      if (mine && !mini && miniDoneKey !== key) {
+        miniKey = key;
+        mini = BobbleMini.start(m.k, stageEl, { what: m.what, beep: (f, d, ty) => G3.beep(f, d, ty), onDone: (ms) => { miniDoneKey = key; sendMiniDone(ms); } });
+      }
+    }
 
     // ------------------------------------------------------------------ sound and particles
     const beep = (f, d, t) => G3.beep(f, d, t);
     const parts = [];
     let shake = 0, wash = null, goalT = 0, kickT = 0;
+    // arena effects: weather, things thrown from the stands, lightning
+    const amb = [], thrown = [], splats = [], bolts = [], camFlashes = [];
+    let ambMap = '', stormK = 0, flash = 0, hoverBlock = -1;
     function fx(e, v) {
       const ball = v.ball;
+      popFor(e);
       switch (e[0]) {
         case 'c': beep(440, 0.12, 'square'); break;
         case 'go': beep(880, 0.3, 'square'); kickT = 1; break;
@@ -453,6 +646,31 @@
         case 'pass': beep(210, 0.15, 'sawtooth'); break;
         case 'ot': beep(330, 0.4, 'sawtooth'); break;
         case 'end': [392, 330, 262].forEach((f, i) => setTimeout(() => beep(f, 0.25, 'triangle'), i * 160)); break;
+        case 'storm': [200, 260, 330, 420].forEach((f, i) => setTimeout(() => beep(f, 0.3, 'sawtooth'), i * 120)); shake = Math.max(shake, 6); break;
+        case 'storm-end': {
+          const mine = v.owners.indexOf(you()), side = mine < 0 ? -1 : (mine < C.TEAM ? 0 : 1);
+          if (e[2] < 0) beep(200, 0.3, 'triangle');
+          else if (side === e[2]) [523, 659, 784].forEach((f, i) => setTimeout(() => beep(f, 0.14, 'square'), i * 90));
+          else [330, 262].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'triangle'), i * 120));
+          break;
+        }
+        case 'heckle': {                                              // [pid, side, what, from]: something flies in from the stands
+          const lv = lastView, ds = lv ? lv.discs.filter((q) => q.side === e[2] && lv.owners[q.i] === e[1]) : [];
+          const tx = ds.length ? ds.reduce((a, q) => a + q.x, 0) / ds.length : (e[2] ? C.W * 0.75 : C.W * 0.25), ty = ds.length ? ds.reduce((a, q) => a + q.y, 0) / ds.length : C.H / 2;
+          thrown.push({ what: e[3], x0: clamp(e[4] * C.W, 60, C.W - 60), y0: e[4] < 0.5 ? -TM + 24 : C.H + BM - 24, x1: tx, y1: ty, t: 0, T: 0.75 });
+          [300, 220].forEach((f, i) => setTimeout(() => beep(f, 0.12, 'sawtooth'), i * 140));
+          break;
+        }
+        case 'mini-end': if (e[2]) beep(780, 0.12, 'square'); break;
+        case 'omen': beep(300, 0.1, 'square'); setTimeout(() => beep(300, 0.1, 'square'), 150); break;
+        case 'bales': beep(90, 0.5, 'sawtooth'); break;
+        case 'bolt-warn': [400, 600, 800, 1000].forEach((f, i) => setTimeout(() => beep(f, 0.18, 'sawtooth'), i * 220)); break;
+        case 'bolt':
+          flash = 1; newBolt(e[1], e[2]); shake = Math.max(shake, 16);
+          beep(60, 0.5, 'sawtooth'); beep(2200, 0.06, 'square');
+          for (let i = 0; i < 40; i++) spark(e[1], e[2], ['#fff27a', '#ffffff', '#9fd8ff'][i % 3], 520);
+          break;
+        case 'frost': if (v.owners[e[1]] === you()) beep(e[2] > 0 ? 1500 - 250 * e[2] : 900, 0.12, 'triangle'); break;
         default: break;
       }
     }
@@ -463,32 +681,26 @@
 
     // ------------------------------------------------------------------ drawing
     const trail = [];
-    let ballRot = 0, bg = null, k = 1, shownOver = false, prevT = performance.now(), raf = 0, barText = '';
+    let ballRot = 0, bg = null, bgMap = 'classic', bgBuilt = '', k = 1, shownOver = false, prevT = performance.now(), raf = 0, barText = '';
 
     function resize() {
       const w = canvas.clientWidth || 800, dpr = Math.min(2, window.devicePixelRatio || 1);
       const pw = Math.round(w * dpr);
-      if (canvas.width === pw) return;
+      if (canvas.width === pw && bgBuilt === bgMap) return;
+      bgBuilt = bgMap;
       canvas.width = pw; canvas.height = Math.round(pw * VH / VW);
       k = canvas.width / VW;
       bg = document.createElement('canvas'); bg.width = canvas.width; bg.height = canvas.height;
       const b = bg.getContext('2d'); b.setTransform(k, 0, 0, k, MX * k, TM * k);
-      paintBackground(b);
+      paintBackground(b, bgMap);
     }
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
-    function paintBackground(c) {
-      const rnd = mulberry(99), X0 = -MX, Y0 = -TM;
-      const ring = c.createLinearGradient(0, Y0, 0, Y0 + VH);                      // the dark surround
-      ring.addColorStop(0, '#0d0a2e'); ring.addColorStop(0.5, '#071225'); ring.addColorStop(1, '#0d0a2e');
-      c.fillStyle = ring; c.fillRect(X0, Y0, VW, VH);
-      // the grass: mowing stripes, then a soft pool of light
-      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#1b9d55' : '#168c4a'; c.fillRect(i * 100, 0, 100, C.H); }
-      for (let n = 0; n < 900; n++) { c.fillStyle = `rgba(255,255,255,${0.015 + rnd() * 0.02})`; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2 + rnd() * 3); }
-      const lit = c.createRadialGradient(C.W / 2, C.H / 2, 60, C.W / 2, C.H / 2, C.W * 0.65);
-      lit.addColorStop(0, 'rgba(255,255,255,.1)'); lit.addColorStop(1, 'rgba(0,12,30,.38)');
-      c.fillStyle = lit; c.fillRect(0, 0, C.W, C.H);
+    function paintBackground(c, map) {
+      const rnd = mulberry(99);
+      paintSurround(c, map, rnd);                                                  // the stands / dunes / pines / jungle around the pitch
+      paintGround(c, map, rnd);                                                    // the playing surface and a soft pool of light
       // the nets
       for (const s of [0, 1]) {
         const x0 = s ? C.W : -C.NET, x1 = s ? C.W + C.NET : 0, t = TEAM[s];
@@ -503,11 +715,11 @@
         c.lineCap = 'butt';
       }
       // the markings
-      c.strokeStyle = 'rgba(255,255,255,.82)'; c.lineWidth = 4;
+      c.strokeStyle = LINE[map] || LINE.classic; c.lineWidth = 4;
       c.strokeRect(0, 0, C.W, C.H);
       c.beginPath(); c.moveTo(C.W / 2, 0); c.lineTo(C.W / 2, C.H); c.stroke();
       c.beginPath(); c.arc(C.W / 2, C.H / 2, 92, 0, 7); c.stroke();
-      c.fillStyle = 'rgba(255,255,255,.85)'; c.beginPath(); c.arc(C.W / 2, C.H / 2, 6, 0, 7); c.fill();
+      c.fillStyle = LINE[map] || LINE.classic; c.beginPath(); c.arc(C.W / 2, C.H / 2, 6, 0, 7); c.fill();
       for (const s of [0, 1]) {
         const x = s ? C.W : 0, d = s ? -1 : 1;
         c.strokeRect(s ? C.W - 160 : 0, C.H / 2 - 190, 160, 380);
@@ -525,6 +737,7 @@
     const emoji = (ch, x, y, size) => { g.font = `${size}px ${EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ch, x, y + size * 0.06); };
 
     function draw(v, dt) {
+      bgMap = v.fx.map;
       resize();
       if (!bg) return;
       if (v.round !== lastRound) { plans = {}; lastRound = v.round; drag = null; }          // a new round: plan afresh
@@ -551,14 +764,296 @@
         g.fillStyle = `rgba(255,255,255,${(i / trail.length) * 0.24 * Math.min(1, sp / 1100)})`;
         g.beginPath(); g.arc(q.x, q.y, C.BR * (0.4 + 0.6 * i / trail.length), 0, 7); g.fill();
       }
+      drawOmens(v, t);
       if (v.ph === 'plan') drawRings(v, t);
-      for (const d of v.discs) drawDisc(d, v);
+      for (const d of v.discs) drawDisc(d, v, t);
       drawBall(v.ball, dt);
+      for (const b of v.fx.bales) drawBale(b);
       if (v.ph === 'plan') drawPlans(v);
       if (drag) drawAim(drag);
+      if (hoverBlock >= 0 && v.fx.block[hoverBlock]) { const d = v.discs[hoverBlock]; tag(BLOCKED[v.fx.block[hoverBlock]], d.x, d.y - C.DR - 16, '#ff9f9f'); }
+      drawThrown(dt);
       drawParts(dt);
+      drawAmbient(v, dt, t);
+      drawBolts(dt);
       drawHud(v, t);
       goalT = Math.max(0, goalT - dt); kickT = Math.max(0, kickT - dt);
+    }
+
+    // ------------------------------------------------------------------ arena effects
+    const flavorOf = (what) => (window.BobbleMini && BobbleMini.FLAVOR[what]) || { emoji: '🍅', colors: ['#d62b1f', '#ff5a3c', '#8f1208'] };
+    function tag(txt, x, y, col) {
+      g.font = '9px "Press Start 2P", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      const w = g.measureText(txt).width + 10;
+      g.fillStyle = 'rgba(4,6,30,.85)'; g.fillRect(x - w / 2, y - 8, w, 16);
+      g.fillStyle = col; g.fillText(txt, x, y + 1);
+    }
+
+    function initAmb(map) {
+      amb.length = 0; ambMap = map;
+      const n = map === 'rainforest' ? 150 : map === 'stadium' ? 0 : 110;
+      for (let i = 0; i < n; i++) {
+        const p = { x: -MX + Math.random() * VW, y: -TM + Math.random() * VH, a: 0.3 + Math.random() * 0.5, z: Math.random() };
+        if (map === 'desert') { p.vx = 70 + p.z * 90; p.vy = (p.z - 0.5) * 14; }
+        else if (map === 'tundra') { p.vx = (p.z - 0.5) * 30; p.vy = 40 + p.z * 60; }
+        else { p.vx = -130; p.vy = 760 + p.z * 200; }
+        amb.push(p);
+      }
+    }
+
+    // weather over the pitch: dust, snow or rain (a storm turns it up), camera flashes in the stadium
+    function drawAmbient(v, dt, t) {
+      const map = v.fx.map;
+      if (map === 'classic') return;
+      if (ambMap !== map) initAmb(map);
+      stormK += ((v.ph === 'storm' ? 1 : 0) - stormK) * Math.min(1, dt * 3);
+      const X0 = -MX, X1 = C.W + MX, Y0 = -TM, Y1 = C.H + BM;
+      if (map === 'stadium') {
+        if (Math.random() < dt * 9) { const top = Math.random() < 0.5; camFlashes.push({ x: X0 + Math.random() * VW, y: top ? Y0 + Math.random() * (TM - 20) : C.H + 20 + Math.random() * (BM - 30), life: 0.16 }); if (camFlashes.length > 24) camFlashes.shift(); }
+        for (let i = camFlashes.length - 1; i >= 0; i--) {
+          const f = camFlashes[i]; f.life -= dt;
+          if (f.life <= 0) { camFlashes.splice(i, 1); continue; }
+          g.fillStyle = `rgba(255,255,240,${f.life / 0.16})`; g.beginPath(); g.arc(f.x, f.y, 2 + f.life * 28, 0, 7); g.fill();
+        }
+        return;
+      }
+      const sk = 1 + stormK * (map === 'desert' ? 9 : 5);
+      g.lineCap = 'round';
+      for (const p of amb) {
+        p.x += p.vx * sk * dt; p.y += p.vy * sk * dt;
+        if (map === 'tundra') p.x += Math.sin(t * 1.5 + p.z * 30) * 18 * dt;
+        if (p.x > X1) p.x = X0; else if (p.x < X0) p.x = X1;
+        if (p.y > Y1) p.y = Y0; else if (p.y < Y0) p.y = Y1;
+        if (map === 'desert') {
+          g.strokeStyle = `rgba(238,205,140,${p.a * (0.35 + 0.55 * stormK)})`; g.lineWidth = 1.5 + p.z * 2;
+          g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * sk * 0.045, p.y - p.vy * sk * 0.045); g.stroke();
+        } else if (map === 'tundra') {
+          g.fillStyle = `rgba(255,255,255,${p.a * (0.6 + 0.4 * stormK)})`;
+          if (stormK > 0.3) { g.strokeStyle = g.fillStyle; g.lineWidth = 2 + p.z * 2; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - p.vx * sk * 0.03, p.y - p.vy * sk * 0.03); g.stroke(); }
+          else { g.beginPath(); g.arc(p.x, p.y, 1.5 + p.z * 2.5, 0, 7); g.fill(); }
+        } else {
+          g.strokeStyle = `rgba(190,225,255,${0.18 + p.a * 0.3})`; g.lineWidth = 1 + p.z;
+          g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + p.vx * 0.022, p.y + p.vy * 0.022); g.stroke();
+        }
+      }
+      g.lineCap = 'butt';
+      if (stormK > 0.02) {                                                  // the storm hides everything a little
+        g.fillStyle = map === 'desert' ? `rgba(214,168,88,${0.4 * stormK})` : `rgba(232,244,255,${0.42 * stormK})`;
+        g.fillRect(X0, Y0, VW, VH);
+      }
+    }
+
+    function drawBale(b) {
+      const r = b.r, rot = (b.y + b.x * 0.4) / r;
+      g.fillStyle = 'rgba(0,0,0,.3)'; g.beginPath(); g.ellipse(b.x + 5, b.y + 9, r, r * 0.9, 0, 0, 7); g.fill();
+      const gr = g.createRadialGradient(b.x - r * 0.3, b.y - r * 0.35, 3, b.x, b.y, r * 1.1);
+      gr.addColorStop(0, '#f6dc86'); gr.addColorStop(0.6, '#d8b04a'); gr.addColorStop(1, '#8f6a1c');
+      g.fillStyle = gr; g.strokeStyle = '#5d4310'; g.lineWidth = 3; g.beginPath(); g.arc(b.x, b.y, r, 0, 7); g.fill(); g.stroke();
+      g.strokeStyle = 'rgba(100,70,15,.7)'; g.lineWidth = 2;
+      for (let q = 0; q < 4; q++) { g.beginPath(); g.arc(b.x, b.y, r * (0.25 + q * 0.19), rot + q * 1.3, rot + q * 1.3 + 4.1); g.stroke(); }
+      g.strokeStyle = '#8a3b22'; g.lineWidth = 3; g.beginPath();
+      g.moveTo(b.x + Math.cos(rot) * r * 0.97, b.y + Math.sin(rot) * r * 0.97); g.lineTo(b.x - Math.cos(rot) * r * 0.97, b.y - Math.sin(rot) * r * 0.97); g.stroke();
+    }
+
+    // announced hazards: the path of each hay bale, the spot lightning is about to hit
+    function drawOmens(v, t) {
+      const fx = v.fx;
+      if (fx.omen && v.ph === 'plan') for (const o of fx.omen) {
+        const dy = o.from ? -1 : 1, ex = o.x, ey = o.from ? C.H : 0;
+        const len = Math.hypot(o.vx, dy * 450), ux = o.vx / len, uy = dy * 450 / len, L = 360, pulse = 0.45 + 0.35 * Math.sin(t * 6);
+        g.setLineDash([14, 11]); g.strokeStyle = `rgba(255,214,90,${pulse})`; g.lineWidth = 5; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex + ux * L, ey + uy * L); g.stroke(); g.setLineDash([]); g.lineCap = 'butt';
+        g.fillStyle = `rgba(255,214,90,${pulse + 0.2})`; g.beginPath();
+        g.moveTo(ex + ux * (L + 18), ey + uy * (L + 18)); g.lineTo(ex + ux * L - uy * 12, ey + uy * L + ux * 12); g.lineTo(ex + ux * L + uy * 12, ey + uy * L - ux * 12); g.closePath(); g.fill();
+        g.fillStyle = '#fff'; emoji('🌾', ex, ey + dy * 24, 34 + 4 * Math.sin(t * 6));
+        tag('HAY', ex, ey + dy * 54, '#ffd43b');
+      }
+      if (fx.bolt) {
+        const b = fx.bolt, k = clamp(b.t / C.BOLT_WARN, 0, 1), blink = Math.sin(t * 34) > 0;
+        g.strokeStyle = `rgba(255,244,140,${0.18 + (1 - k) * 0.4})`; g.lineWidth = 2; g.setLineDash([6, 8]);
+        g.beginPath(); g.moveTo(b.x, -TM); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
+        g.strokeStyle = blink ? '#fff27a' : '#ff9f43'; g.lineWidth = 3; g.setLineDash([10, 8]);
+        g.beginPath(); g.arc(b.x, b.y, C.STUN_R, 0, 7); g.stroke(); g.setLineDash([]);
+        g.lineWidth = 4; g.beginPath(); g.arc(b.x, b.y, 14 + (C.STUN_R - 14) * k, 0, 7); g.stroke();
+        g.fillStyle = '#fff'; emoji('⚡', b.x, b.y, 34);
+      }
+    }
+
+    // a missile from the stands (stadium), then the splat where it landed
+    function drawThrown(dt) {
+      for (let i = thrown.length - 1; i >= 0; i--) {
+        const q = thrown[i];
+        q.t += dt;
+        const u = q.t / q.T;
+        if (u >= 1) {
+          thrown.splice(i, 1);
+          const fl = flavorOf(q.what);
+          splats.push({ x: q.x1, y: q.y1, life: 1.2, c: fl.colors[0] });
+          for (let n = 0; n < 26; n++) spark(q.x1, q.y1, fl.colors[n % 3], 420);
+          shake = Math.max(shake, 9); beep(110, 0.18, 'sawtooth'); beep(70, 0.25, 'square');
+          continue;
+        }
+        const x = q.x0 + (q.x1 - q.x0) * u, y = q.y0 + (q.y1 - q.y0) * u - Math.sin(Math.PI * u) * 150;
+        g.save(); g.translate(x, y); g.rotate(u * 12); g.fillStyle = '#fff'; emoji(flavorOf(q.what).emoji, 0, 0, 30 + 16 * u); g.restore();
+      }
+      for (let i = splats.length - 1; i >= 0; i--) {
+        const q = splats[i]; q.life -= dt;
+        if (q.life <= 0) { splats.splice(i, 1); continue; }
+        g.globalAlpha = clamp(q.life, 0, 0.6); g.fillStyle = q.c;
+        for (let n = 0; n < 5; n++) { g.beginPath(); g.arc(q.x + Math.cos(n * 1.9) * 26, q.y + Math.sin(n * 2.3) * 22, 14 + n * 3, 0, 7); g.fill(); }
+        g.globalAlpha = 1;
+      }
+    }
+
+    function drawBolts(dt) {
+      for (let i = bolts.length - 1; i >= 0; i--) {
+        const b = bolts[i]; b.life -= dt;
+        if (b.life <= 0) { bolts.splice(i, 1); continue; }
+        g.lineJoin = 'round'; g.lineCap = 'round';
+        g.strokeStyle = `rgba(255,240,120,${b.life / 0.4})`; g.lineWidth = 14; g.beginPath(); b.pts.forEach((p, j) => g[j ? 'lineTo' : 'moveTo'](p[0], p[1])); g.stroke();
+        g.strokeStyle = `rgba(255,255,255,${Math.min(1, b.life / 0.25)})`; g.lineWidth = 5; g.beginPath(); b.pts.forEach((p, j) => g[j ? 'lineTo' : 'moveTo'](p[0], p[1])); g.stroke();
+        g.lineJoin = 'miter'; g.lineCap = 'butt';
+      }
+      if (flash > 0.01) { g.fillStyle = `rgba(255,255,235,${0.65 * flash})`; g.fillRect(-MX, -TM, VW, VH); flash *= Math.pow(0.002, dt); }
+    }
+    function newBolt(x, y) {
+      const pts = [[x + (Math.random() - 0.5) * 60, -TM]], n = 8;
+      for (let i = 1; i < n; i++) pts.push([x + (Math.random() - 0.5) * 70 * (1 - i / n), -TM + (y + TM) * i / n]);
+      pts.push([x, y]);
+      bolts.push({ pts, life: 0.4 });
+    }
+
+    // ------------------------------------------------------------------ event popups (DOM, above the minigames and the weather)
+    // One card per event, with a bar that runs down.  `life` is a fixed number of seconds; `until(view)` keeps it up for as long as the
+    // effect itself lasts (the card is never shown for less than 0.8 s, nor longer than `max`); `frac(view)` drives the bar then.
+    const popWrap = wrap.querySelector('#blPop');
+    const pops = [];
+    const nameOf = (pid) => { const s = slotOf(pid); return s ? '@' + s.n : 'A PLAYER'; };
+    function pop(id, o) {
+      let p = pops.find((q) => q.id === id);
+      if (!p) {
+        const el = document.createElement('div');
+        el.className = 'bl-pop-card';
+        el.innerHTML = '<span class="bl-pop-ic"></span><div class="bl-pop-tx"><b></b><span></span></div><i class="bl-pop-bar"></i>';
+        popWrap.appendChild(el);
+        p = { id, el, ic: el.querySelector('.bl-pop-ic'), ti: el.querySelector('b'), su: el.querySelector('.bl-pop-tx span'), bar: el.querySelector('.bl-pop-bar'), txt: ['', ''] };
+        pops.push(p);
+        while (pops.length > 3) dropPop(pops[0]);                          // never more than three cards
+      }
+      p.o = o; p.born = performance.now();
+      p.el.style.setProperty('--tone', o.tone || '#ffd43b');
+      p.ic.textContent = o.icon || '';
+      p.dying = false; p.el.classList.remove('out');
+      return p;
+    }
+    function dropPop(p) {
+      const i = pops.indexOf(p);
+      if (i >= 0) pops.splice(i, 1);
+      p.el.classList.add('out');
+      setTimeout(() => p.el.remove(), 280);
+    }
+    function endPop(id) { const p = pops.find((q) => q.id === id); if (p) dropPop(p); }
+    function clearPops() { while (pops.length) dropPop(pops[0]); }
+    const str = (f, v) => (typeof f === 'function' ? f(v) : f || '');
+    function syncPops(v, now) {
+      for (const p of pops.slice()) {
+        const o = p.o, age = (now - p.born) / 1000;
+        const over = (o.life && age >= o.life) || age >= (o.max || 40) || (o.until && v && age >= 0.8 && !o.until(v));
+        if (over) { dropPop(p); continue; }
+        const t = str(o.title, v), s = str(o.sub, v);
+        if (p.txt[0] !== t) { p.ti.textContent = t; p.txt[0] = t; }
+        if (p.txt[1] !== s) { p.su.textContent = s; p.txt[1] = s; }
+        const f = o.frac && v ? clamp(o.frac(v), 0, 1) : o.life ? 1 - age / o.life : 1;
+        p.bar.style.transform = `scaleX(${f.toFixed(3)})`;
+      }
+    }
+    // what each event says, and how long it lasts
+    function popFor(e) {
+      switch (e[0]) {
+        case 'heckle': {                                                    // [pid, side, what, from]
+          const pid = e[1], fl = flavorOf(e[3]), jeer = e[3] === 'boo';
+          endPop('heckle-end');
+          pop('heckle', {
+            icon: fl.emoji, tone: '#ffb36b', max: C.HECKLE_T + 2,
+            title: () => `${nameOf(pid)} ${jeer ? 'IS BEING JEERED' : 'GOT PELTED'}!`,
+            sub: (v) => {
+              const m = v.fx.mini; if (!m) return '';
+              const carriers = []; let stuck = false;
+              for (let i = 0; i < v.fx.pelt.length; i++) if (v.fx.pelt[i]) { if (v.fx.block[i] === 2) stuck = true; else if (!carriers.includes(v.owners[i])) carriers.push(v.owners[i]); }
+              const left = `${Math.ceil(m.t)}s`;
+              return stuck ? `THEIR BOBBLES ARE STUCK FOR ${left} UNLESS THEY SCRUB CLEAN`
+                : `${carriers.map(nameOf).join(' + ')} CARR${carriers.length > 1 ? 'Y' : 'IES'} THEIR BOBBLES FOR ${left}`;
+            },
+            until: (v) => !!v.fx.mini && !v.fx.mini.race,
+            frac: (v) => (v.fx.mini ? v.fx.mini.t / C.HECKLE_T : 0),
+          });
+          break;
+        }
+        case 'mini-end': {                                                  // [pid, ok, kind]
+          endPop('heckle');
+          pop('heckle-end', { icon: e[2] ? '✅' : '⏱️', tone: e[2] ? '#7cf29a' : '#ffb36b', life: 3,
+            title: e[2] ? `${nameOf(e[1])} IS CLEAN!` : `TIME'S UP FOR ${nameOf(e[1])}`, sub: 'THEIR BOBBLES ARE THEIR OWN AGAIN' });
+          break;
+        }
+        case 'storm': {                                                     // [kind]
+          const desert = e[1] === 'dig';
+          endPop('storm-end');
+          pop('storm', {
+            icon: desert ? '🏜️' : '🌨️', tone: desert ? '#e0b050' : '#9fd8ff', max: C.STORM_T + 2,
+            title: desert ? 'SANDSTORM!' : 'SNOWSTORM!',
+            sub: (v) => `RACE: ${desert ? 'DIG OUT' : 'SHAKE IT OFF'}! THE FIRST ONE OUT GETS THE TURN  ${Math.ceil(v.t)}s`,
+            until: (v) => v.ph === 'storm', frac: (v) => v.t / C.STORM_T,
+          });
+          break;
+        }
+        case 'storm-end': {                                                 // [winnerPid, winnerSide, kind]
+          endPop('storm');
+          if (e[2] < 0) pop('storm-end', { icon: '🌫️', tone: '#cfd8ff', life: 3.5, title: 'NOBODY GOT OUT', sub: 'THE STORM PASSES: NOBODY IS LOCKED' });
+          else pop('storm-end', {
+            icon: '🏆', tone: TEAM[e[2]].main, max: C.PLAN_TIME + 2,
+            title: (v) => `${v.teams[e[2]].name} WIN THE TURN!`,
+            sub: (v) => `${v.teams[1 - e[2]].name} ARE LOCKED IN PLACE FOR THIS ROUND`,
+            until: (v) => v.fx.frozen >= 0 && v.ph === 'plan',
+          });
+          break;
+        }
+        case 'omen':
+          pop('omen', {
+            icon: '🌾', tone: '#ffd43b', max: C.PLAN_TIME + 2,
+            title: `${e[1]} HAY BALE${e[1] > 1 ? 'S' : ''} INCOMING!`, sub: 'THEY ROLL IN WHEN THE FLICKS START. PLAN AROUND THE DASHED PATHS',
+            until: (v) => !!v.fx.omen && v.ph === 'plan', frac: (v) => v.t / C.PLAN_TIME,
+          });
+          break;
+        case 'bales':
+          endPop('omen');
+          pop('bales', { icon: '🌾', tone: '#ffd43b', max: 15, title: 'WATCH OUT: HAY BALES!', sub: 'THEY KNOCK EVERYTHING IN THEIR WAY', until: (v) => v.fx.bales.length > 0 });
+          break;
+        case 'bolt-warn':
+          pop('bolt', { icon: '⚡', tone: '#fff27a', life: C.BOLT_WARN + 0.4, title: 'LIGHTNING!', sub: 'IT STRIKES THE MARKED SPOT. THE BOBBLES NEAREST IT ARE STUNNED' });
+          break;
+        case 'bolt': {                                                      // [x, y, [bobbles hit]]
+          endPop('bolt');
+          const n = e[3].length;
+          pop('stun', {
+            icon: '😵', tone: '#fff27a', max: C.STUN + 2,
+            title: `${n} BOBBLE${n === 1 ? '' : 'S'} STUNNED!`,
+            sub: (v) => `THEY CAN'T BE FLICKED FOR ${Math.ceil(Math.max(0, ...v.fx.stun))}s`,
+            until: (v) => v.fx.stun.some((x) => x > 0), frac: (v) => Math.max(0, ...v.fx.stun) / C.STUN,
+          });
+          break;
+        }
+        case 'frost':                                                       // [bobble, level]
+          if (e[2] > 0) pop('frost', {
+            icon: '🥶', tone: '#bfe9ff', life: 5,
+            title: e[2] >= 3 ? 'FROZEN SOLID!' : 'FROSTBITE!',
+            sub: (v) => {
+              const cold = v.fx.frost.filter((x) => x > 0 && x < 3).length, ice = v.fx.frost.filter((x) => x >= 3).length;
+              return `${cold ? cold + ' COOLING (WEAKER FLICKS)' : ''}${cold && ice ? ', ' : ''}${ice ? ice + ' FROZEN: KNOCK THEM FREE' : ''}. MOVE BOBBLES TO KEEP THEM WARM`;
+            },
+          });
+          break;
+        default: break;
+      }
     }
 
     // which bobbles are mine to plan: bright gold when they still need a plan, green once planned; my teammates' are outlined in the team colour
@@ -566,7 +1061,10 @@
       const me = you(), ready = iAmReady(v);
       for (const d of v.discs) {
         const owner = v.owners[d.i];
-        if (owner === me) {
+        if (owner === me && v.fx.block[d.i]) {                          // mine, but it can't be flicked right now
+          g.strokeStyle = 'rgba(180,190,210,.75)'; g.lineWidth = 2.5; g.setLineDash([4, 5]);
+          g.beginPath(); g.arc(d.x, d.y, C.DR + 7, 0, 7); g.stroke(); g.setLineDash([]);
+        } else if (owner === me) {
           const planned = !!plans[d.i], hot = d.i === hover || (drag && drag.i === d.i);
           g.strokeStyle = ready ? 'rgba(124,242,154,.9)' : hot ? '#ffffff' : planned ? '#7cf29a' : '#ffd43b';
           g.lineWidth = hot ? 4 : 3;
@@ -581,7 +1079,50 @@
     }
     function myTeamSide(v) { const i = v.owners.indexOf(you()); return i < 0 ? -1 : (i < C.TEAM ? 0 : 1); }
 
-    function drawDisc(d, v) {
+    // frostbite, stun, a splat, a padlock: what has happened to a bobble
+    function drawStatus(d, v, t) {
+      const fx = v.fx, r = C.DR, fr = fx.frost[d.i], st = fx.stun[d.i], bk = fx.block[d.i];
+      if (fr > 0) {
+        g.fillStyle = `rgba(200,236,255,${[0, 0.28, 0.5, 0.8][fr]})`; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
+        g.strokeStyle = `rgba(255,255,255,${0.4 + 0.15 * fr})`; g.lineWidth = 2;
+        for (let a = 0; a < 6; a++) {
+          const an = a * Math.PI / 3 + fr * 0.2, r0 = r * 0.2, r1 = r * (0.55 + 0.12 * fr);
+          g.beginPath(); g.moveTo(d.x + Math.cos(an) * r0, d.y + Math.sin(an) * r0); g.lineTo(d.x + Math.cos(an) * r1, d.y + Math.sin(an) * r1); g.stroke();
+        }
+        if (fr === 3) { g.strokeStyle = '#e8f8ff'; g.lineWidth = 4; g.beginPath(); g.arc(d.x, d.y, r + 2, 0, 7); g.stroke(); }
+        tag(fr === 3 ? 'FROZEN' : '*'.repeat(fr), d.x, d.y - r - 11, '#bfe9ff');
+      } else if (fx.idle[d.i] >= C.FROST_AFTER && v.ph === 'plan') {      // one more round without moving and it gets frostbite
+        g.globalAlpha = 0.6 + 0.4 * Math.sin(t * 7);
+        tag('COLD!', d.x, d.y - r - 11, '#ffd43b'); g.globalAlpha = 1;
+      }
+      if (st > 0) {
+        g.fillStyle = 'rgba(20,20,50,.38)'; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
+        g.strokeStyle = '#fff27a'; g.lineWidth = 2.5; g.lineJoin = 'round';
+        const seed = Math.floor(t * 14);
+        for (let k = 0; k < 3; k++) {
+          g.beginPath();
+          for (let j = 0; j < 7; j++) {
+            const an = (j + k * 2.3) * 0.9 + seed * 1.7, rr = r + 3 + (((seed * 7 + j * 13 + k * 5) % 5) - 2) * 3;
+            g[j ? 'lineTo' : 'moveTo'](d.x + Math.cos(an) * rr, d.y + Math.sin(an) * rr);
+          }
+          g.stroke();
+        }
+        g.lineJoin = 'miter';
+        tag(`STUN ${Math.ceil(st)}s`, d.x, d.y - r - 11, '#fff27a');
+      }
+      if (fx.pelt[d.i]) {                                                   // the pelted player's bobbles: stuck, or carried by a teammate
+        const fl = flavorOf(fx.mini && fx.mini.what);
+        g.globalAlpha = 0.72; g.fillStyle = fl.colors[0];
+        for (let n = 0; n < 4; n++) { g.beginPath(); g.arc(d.x + Math.cos(n * 1.7) * r * 0.45, d.y + Math.sin(n * 2.1) * r * 0.4, r * (0.42 + 0.1 * (n % 2)), 0, 7); g.fill(); }
+        g.globalAlpha = 1; g.fillStyle = '#fff'; emoji(fl.emoji, d.x, d.y, r * 0.8);
+        tag(bk === 2 ? 'STUCK' : 'CARRIED', d.x, d.y - r - 11, '#ffb36b');
+      } else if (bk === 4) {
+        g.fillStyle = 'rgba(20,24,40,.42)'; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
+        g.fillStyle = '#fff'; emoji('🔒', d.x, d.y, r * 0.8);
+      }
+    }
+
+    function drawDisc(d, v, t) {
       const col = TEAM[d.side], r = C.DR;
       const grad = g.createRadialGradient(d.x - r * 0.32, d.y - r * 0.38, 3, d.x, d.y, r * 1.1);
       grad.addColorStop(0, col.light); grad.addColorStop(0.4, col.main); grad.addColorStop(1, col.dark);
@@ -595,6 +1136,7 @@
       emoji(mascotOf(v.teams[d.side].mascot), d.x + bx / bd * 2.5, d.y + by / bd * 2.5, r * 1.12);
       g.fillStyle = 'rgba(255,255,255,.35)';
       g.beginPath(); g.ellipse(d.x - r * 0.45, d.y - r * 0.55, r * 0.2, r * 0.1, -0.7, 0, 7); g.fill();
+      drawStatus(d, v, t);
     }
 
     function drawBall(b, dt) {
@@ -696,15 +1238,17 @@
       g.beginPath(); g.roundRect ? g.roundRect(cx - bw / 2, by, bw, 46, 12) : g.rect(cx - bw / 2, by, bw, 46); g.fill(); g.stroke();
       g.textAlign = 'center'; g.textBaseline = 'middle';
       if (v.ph === 'plan') {
-        const mineN = v.discs.filter((d) => mineDisc(v, d)).length, n = Object.keys(plans).length;
+        const mineN = v.discs.filter((d) => mineDisc(v, d) && !v.fx.block[d.i]).length, n = Object.keys(plans).length;
         g.fillStyle = ready ? '#7cf29a' : '#ffd43b'; g.font = pix(10);
-        g.fillText(mineN === 0 ? `ROUND ${v.round}: WATCHING` : ready ? `ROUND ${v.round}: LOCKED IN` : `ROUND ${v.round}: PLAN YOUR MOVES  ${n}/${mineN}`, cx, by + 14);
+        g.fillText(mineN === 0 ? `ROUND ${v.round}: ${v.discs.some((d) => mineDisc(v, d)) ? 'NOTHING OF YOURS CAN MOVE' : 'WATCHING'}` : ready ? `ROUND ${v.round}: LOCKED IN` : `ROUND ${v.round}: PLAN YOUR MOVES  ${n}/${mineN}`, cx, by + 14);
         g.fillStyle = '#9fb0ff'; g.font = '14px "Share Tech Mono", monospace';
         const st = (s) => `${mascotOf(v.teams[s].mascot)} ${v.teams[s].name}: ${v.locked[s] ? 'LOCKED IN' : 'planning...'}`;
         g.fillText(`${st(0)}     ${st(1)}`, cx, by + 31);
         const f = clamp(v.t / C.PLAN_TIME, 0, 1);
         g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(cx - bw / 2 + 12, by + 41, bw - 24, 3);
         g.fillStyle = f < 0.2 ? '#ff5c7a' : '#ffd43b'; g.fillRect(cx - bw / 2 + 12, by + 41, (bw - 24) * f, 3);
+      } else if (v.ph === 'storm') {
+        g.fillStyle = v.fx.map === 'desert' ? '#ffd98a' : '#bfe9ff'; g.font = pix(10); g.fillText(`${v.fx.map === 'desert' ? 'SANDSTORM' : 'SNOWSTORM'}: FIRST ONE OUT GETS THE TURN  ${Math.ceil(v.t)}`, cx, by + 23);
       } else if (v.ph === 'roll') {
         g.fillStyle = '#9fb0ff'; g.font = pix(10); g.fillText('EVERYTHING MOVES AT ONCE...', cx, by + 23);
       } else if (v.ph === 'goal') {
@@ -730,7 +1274,7 @@
 
     // the LOCK IN button under the pitch follows the round
     function syncBar(v) {
-      const show = stage === 'play' && !!v && v.ph === 'plan' && v.owners.includes(you());
+      const show = stage === 'play' && !!v && v.ph === 'plan' && v.discs.some((d) => mineDisc(v, d) && !v.fx.block[d.i]);
       readyBtn.style.display = show ? '' : 'none';
       if (!show) return;
       const ready = iAmReady(v), n = Object.keys(plans).length;
@@ -763,15 +1307,17 @@
     function frame(ts) {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(0.1, (ts - prevT) / 1000); prevT = ts;
-      if (stage !== 'play') { resize(); if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); } syncBar(null); return; }
+      if (stage !== 'play') { bgMap = mapId; syncMini(null); clearPops(); resize(); if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); } syncBar(null); return; }
       const v = currentView();
       lastView = v;
       if (!v) {
-        resize();
+        bgMap = mapId; resize();
         if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); g.setTransform(k, 0, 0, k, MX * k, TM * k); g.font = '18px "Press Start 2P", monospace'; g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText('CONNECTING TO THE MATCH...', C.W / 2, C.H / 2); }
         return;
       }
       draw(v, dt);
+      syncMini(v);
+      syncPops(v, performance.now());
       syncBar(v);
       updateOverlay(latest && !isHost ? latest : v);
     }
@@ -782,6 +1328,7 @@
     function toPlay(d) {                                           // a guest: the match is on
       if (d.names) { T.names = d.names.slice(); T.mascots = d.mascots.slice(); }
       if (d.mode) modeId = d.mode;
+      mapId = d.map || mapId;
       stage = 'play'; menu.classList.add('hidden'); setModeLabel();
     }
     return {
@@ -790,6 +1337,7 @@
         if (isHost) {
           if (d.k === 'plan' && stage === 'play') Sim.setPlan(sim, from, d.i, d.ax, d.ay);
           else if (d.k === 'ready' && stage === 'play') { Sim.setReady(sim, from, !!d.v); forceSnap = true; }
+          else if (d.k === 'mini' && stage === 'play') { Sim.miniDone(sim, from, +d.ms); forceSnap = true; }
           else if (d.k === 'team') applyTeam(from, d);
           return;
         }
@@ -799,14 +1347,14 @@
           onSnapshot(d);
         } else if (d.k === 'setup') {
           if (stage === 'play') return;
-          stage = 'teams'; modeId = d.mode || modeId;
+          stage = d.st === 'maps' ? 'maps' : 'teams'; modeId = d.mode || modeId; mapId = d.map || 'classic';
           T.names = d.names.slice(); T.mascots = d.mascots.slice(); T.ready = d.ready.slice();
-          setModeLabel(); renderSetup(false);
+          setModeLabel(); renderStage();
         } else if (d.k === 'begin') {
           plans = {}; lastRound = -1;
           toPlay(d);
         } else if (d.k === 'menu') {
-          stage = 'menu'; modeId = null; drag = null; plans = {};
+          stage = 'menu'; modeId = null; mapId = 'classic'; drag = null; plans = {};
           snaps.length = 0; base = null; ivl = 50; lastTk = -1; latest = null;
           over.classList.add('hidden'); shownOver = false;
           setModeLabel(); renderMenu();
@@ -818,6 +1366,8 @@
       },
       destroy() {
         cancelAnimationFrame(raf);
+        if (mini) mini.stop();
+        clearPops();
         clearTimeout(nameTimer);
         if (ticker) ticker.terminate();
         if (timer) clearInterval(timer);

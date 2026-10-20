@@ -72,3 +72,54 @@ html.bl-open, html.bl-open body { overflow: hidden; }
 .bl button.bl-lock { border: 2px solid #ffd43b; color: #ffd43b; font-family: 'Press Start 2P', monospace; font-size: 11px; padding: 8px 14px; }
 .bl button.bl-lock:hover, .bl button.bl-lock.on { background: #ffd43b; color: #050d06; border-color: #ffd43b; }
 .bl button.bl-lock.on { background: #7cf29a; border-color: #7cf29a; }
+
+/* the arena picker */
+.bl-maps { max-width: 1060px; }
+.bl button.bl-map { width: min(250px, 46%); }
+.bl .bl-evt { display: block; font-style: normal; font-family: 'Press Start 2P', monospace; font-size: 8px; letter-spacing: .04em; color: #ffd43b; margin-bottom: 8px; line-height: 1.5; }
+.bl button.bl-map.m-stadium { border-color: #a99cff; }
+.bl button.bl-map.m-desert { border-color: #e0b050; }
+.bl button.bl-map.m-tundra { border-color: #8fd3ff; }
+.bl button.bl-map.m-rainforest { border-color: #3fd07a; }
+.bl button.bl-map.sel { border-color: #ffd43b; }
+
+/* the arena minigames, on top of the match (minigames.js) */
+.bl-mg { position: absolute; inset: 0; z-index: 6; line-height: 1.3; }
+.bl-mg canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.bl-mg-hud {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px;
+  pointer-events: none; background: rgba(4, 6, 30, .88); border: 2px solid #ffd43b; padding: 8px 16px; max-width: 92%; text-align: center;
+}
+.bl-mg-hud b { font-family: 'Press Start 2P', monospace; font-weight: normal; font-size: clamp(9px, 1.3vw, 15px); color: #ffd43b; }
+.bl-mg-hud span { font-size: 12px; color: #9fb0ff; transition: opacity .3s; }
+.bl-mg-bar { width: min(420px, 70vw); height: 12px; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .4); }
+.bl-mg-bar i { display: block; height: 100%; width: 0; background: #7cf29a; }
+.bl-mg-clean .bl-mg-hud { border-color: #7cf29a; }
+.bl-mg-clean canvas { opacity: 0; transition: opacity .4s; }
+.bl-mg-card {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, 90%); padding: 18px 22px; display: flex; flex-direction: column;
+  align-items: center; gap: 10px; text-align: center; background: rgba(4, 6, 30, .93); border: 3px solid var(--tone, #ffd43b);
+  box-shadow: 0 0 30px var(--tone, #ffd43b); user-select: none; cursor: pointer;
+}
+.bl-mg-title { font-family: 'Press Start 2P', monospace; font-weight: normal; font-size: clamp(14px, 2.4vw, 28px); color: var(--tone, #ffd43b); }
+.bl-mg-sub { font-size: 13px; color: #cfd8ff; }
+.bl-mg-pct { font-family: 'Press Start 2P', monospace; font-size: 12px; color: #fff; }
+.bl-mg-pit { position: relative; width: 230px; height: 140px; overflow: hidden; }
+.bl-mg-em { position: absolute; left: 50%; bottom: 26px; margin-left: -.5em; font-size: 64px; line-height: 1; will-change: transform; }
+.bl-mg-heap { position: absolute; left: -10%; right: -10%; bottom: 0; height: 70%; background: var(--tone, #ffd43b); border-radius: 50% 50% 0 0 / 40% 40% 0 0; opacity: .92; }
+.bl-mg-keys { display: flex; gap: 14px; }
+.bl .bl-mg-keys button { font-size: 28px; padding: 8px 26px; border: 2px solid var(--tone, #ffd43b); color: var(--tone, #ffd43b); background: #071208; }
+
+/* event popups: above the minigames and the weather, so they are always readable */
+.bl-pop { position: absolute; left: 50%; top: 112px; transform: translateX(-50%); z-index: 9; width: min(600px, 94%); display: flex; flex-direction: column; gap: 8px; pointer-events: none; line-height: 1.3; }
+.bl-pop-card {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; padding: 9px 14px 12px; background: rgba(4, 6, 30, .95);
+  border: 2px solid var(--tone, #ffd43b); box-shadow: 0 0 18px var(--tone, #ffd43b); animation: bl-pop-in .25s ease-out; transition: opacity .25s, transform .25s;
+}
+.bl-pop-card.out { opacity: 0; transform: translateY(-10px); }
+.bl-pop-ic { font-size: 30px; line-height: 1; flex: none; }
+.bl-pop-tx { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-align: left; }
+.bl-pop-tx b { font-family: 'Press Start 2P', monospace; font-weight: normal; font-size: clamp(10px, 1.4vw, 14px); color: var(--tone, #ffd43b); }
+.bl-pop-tx span { font-size: 13px; color: #dfe6ff; }
+.bl-pop-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: var(--tone, #ffd43b); transform-origin: left; }
+@keyframes bl-pop-in { from { opacity: 0; transform: translateY(-14px) scale(.96); } to { opacity: 1; transform: none; } }
