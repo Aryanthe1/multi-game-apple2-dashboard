@@ -1,7 +1,7 @@
 // node g3/web/games/bobble_league/sim.test.js
 const Sim = require('./sim.js');
 const { C } = Sim;
-C.FX_START = 0;                       // most tests want events from round 1; the 'quiet first minute' block below turns it back on
+C.FX_START = 0;                       // most tests want events from round 1; the 'quiet first turns' block below turns it back on
 let fails = 0;
 function check(label, ok, extra) { console.log((ok ? '  ok   ' : '  FAIL ') + label + (ok || extra === undefined ? '' : '  -> ' + extra)); if (!ok) fails++; }
 const run = (S, secs) => { for (let i = 0; i < Math.round(secs * 60); i++) Sim.step(S); };
@@ -12,6 +12,10 @@ const settle = (S, max = 40) => { for (let i = 0; i < max * 60 && S.phase === 'r
 const park = (S) => S.discs.forEach((q, i) => { q.x = 60 + i * 75; q.y = 40; q.vx = q.vy = 0; });   // everyone out of the ball's way, along the top
 const inside = (b, slack = 0) => b.x >= b.r - slack && b.x <= C.W - b.r + slack && b.y >= b.r - 0.01 && b.y <= C.H - b.r + 0.01;
 const mine = (S, pid) => S.discs.filter((d) => S.owner[d.i] === pid).map((d) => d.i);
+// after a goal the sim goes celebration -> replay -> formation pick -> planning: these get through the last two
+const pump = (S) => { if (S.phase === 'replay') Sim.skipReplay(S); if (S.phase === 'form') { Sim.formReady(S, 0, true); Sim.formReady(S, 1, true); } };
+const pastGoal = (S) => { for (let i = 0; i < 60 * 30 && (S.phase === 'goal' || S.phase === 'replay' || S.phase === 'form'); i++) { Sim.step(S); pump(S); } };
+const playTurn = (S) => { Sim.setPlan(S, S.owner[0], 0, 0.1, 0); lockAll(S); settle(S); };
 const lockAll = (S) => { for (const id of S.members[0].concat(S.members[1])) Sim.setReady(S, id, true); };
 
 console.log('kickoff');
@@ -152,7 +156,19 @@ run(S, 0.5);
 check('the ball crossing the right goal line scores for cyan', S.score[0] === 1 && S.score[1] === 0 && S.phase === 'goal' && S.lastGoal === 0, `${S.score} ${S.phase}`);
 check('the goal was announced', Sim.takeEvents(S).some((e) => e[0] === 'goal' && e[1] === 0));
 run(S, C.GOAL_PAUSE + 0.1);
-check('after the celebration the pitch is reset for a new round of planning', S.phase === 'plan' && S.ball.x === C.W / 2 && S.ball.y === C.H / 2 && S.discs[0].x === 70 && S.round === 2);
+check('after the celebration the goal is replayed', S.phase === 'replay' && S.rl >= 1 && S.rl <= C.REPLAY_MAX && Sim.takeEvents(S).some((e) => e[0] === 'replay'), `${S.phase} ${S.rl}`);
+check('and the replay is a snapshot field, only while it lasts', Sim.snapshot(S).rl === S.rl && !('rl' in Sim.snapshot(live(mk()))));
+const replayLen = S.t;
+run(S, replayLen - 0.1); check('the replay lasts its length at replay speed, plus a pause', S.phase === 'replay' && replayLen <= S.rl / C.REPLAY_SPEED + C.REPLAY_TAIL && replayLen > 0.5);
+run(S, 0.3);
+check('then the pitch is reset and the captains may pick their positions', S.phase === 'form' && S.ball.x === C.W / 2 && S.ball.y === C.H / 2 && S.discs[0].x === 70 && S.round === 1 && Sim.takeEvents(S).some((e) => e[0] === 'form'));
+check('only one team being ready does not start the round', (Sim.formReady(S, 0, true), S.phase === 'form' && S.fy[0] && !S.fy[1]));
+Sim.formReady(S, 1, true);
+check('both ready: the next round of planning opens', S.phase === 'plan' && S.round === 2 && S.t === C.PLAN_TIME);
+S = live(mk()); shootBall(S, C.W - 120, C.H / 2, 1200, 0); run(S, 0.5 + C.GOAL_PAUSE + 0.1);
+Sim.skipReplay(S); run(S, C.FORM_TIME - 0.5);
+check('the formation pick ends by itself when the time is up', S.phase === 'form');
+run(S, 0.6); check('...and then planning opens', S.phase === 'plan' && S.round === 2);
 S = live(mk()); shootBall(S, 150, C.H / 2, -1300, 0);
 run(S, 0.5);
 check('the left goal scores for magenta', S.score[1] === 1 && S.score[0] === 0);
@@ -161,22 +177,34 @@ run(S, 0.8);
 check('a ball past the end line outside the posts is not a goal', S.score[0] + S.score[1] === 0);
 S = live(mk()); S.score = [2, 0]; shootBall(S, C.W - 120, C.H / 2, 1200, 0);
 run(S, 0.5 + C.GOAL_PAUSE + 0.2);
+check('the winning goal is replayed too', S.phase === 'replay');
+pastGoal(S);
 check('the third goal wins the match', S.phase === 'over' && S.winner === 0 && Sim.takeEvents(S).some((e) => e[0] === 'end' && e[1] === 0));
 
-console.log('the clock');
-S = live(mk([0, 1], { seconds: 2 }));
+console.log('the turn limit (there is no match clock)');
+S = live(mk([0, 1], { turns: 2 }));
+run(S, 120); settle(S);
+check('time alone ends nothing: two minutes of planning later it is still round 1 of planning or later, and the match goes on', S.phase !== 'over' && S.turn === 0);
+check('turns are counted when something is flicked, not when the time runs out', S.turn === 0 && (S.round >= 1));
+S = live(mk([0, 1], { turns: 2 }));
+check('a pass (nobody planned anything) is not a turn', (lockAll(S), S.turn === 0 && Sim.takeEvents(S).some((e) => e[0] === 'pass')));
+S = live(mk([0, 1], { turns: 2 })); park(S);
 S.score = [1, 0];
-run(S, 2.2);
-check('the clock runs while planning, and when it ends the leader wins', S.phase === 'over' && S.winner === 0, `${S.phase} ${S.winner}`);
-S = live(mk([0, 1], { seconds: 2 }));
-run(S, 2.2); park(S);
+playTurn(S); check('one turn is counted', S.turn === 1 && S.phase === 'plan');
+playTurn(S);
+check('when the turn limit is reached the leader wins', S.phase === 'over' && S.winner === 0, `${S.phase} ${S.winner} ${S.turn}`);
+S = live(mk([0, 1], { turns: 2 })); park(S);
+playTurn(S); playTurn(S);
 check('a tie goes to sudden death', S.phase === 'plan' && S.ot && Sim.takeEvents(S).some((e) => e[0] === 'ot'));
-S.ball.x = C.W - 120; S.ball.y = C.H / 2; S.ball.vx = 1200; S.ball.vy = 0;
+playTurn(S); check('...and more turns do not end it', S.phase === 'plan' && S.ot);
+park(S); S.ball.x = C.W - 120; S.ball.y = C.H / 2; S.ball.vx = 1200; S.ball.vy = 0;
 Sim.setPlan(S, 0, 0, 1, 0); Sim.setReady(S, 0, true); Sim.setReady(S, 1, true);
-run(S, 0.5 + C.GOAL_PAUSE + 0.2);
+run(S, 0.5 + C.GOAL_PAUSE + 0.2); pastGoal(S);
 check('and the next goal wins it', S.phase === 'over' && S.winner === 0);
 Sim.restart(S);
-check('restart puts it all back', S.phase === 'countdown' && S.score[0] + S.score[1] === 0 && !S.ot && S.winner === -1 && S.clock === 2 && S.discs[0].x === 70 && S.round === 0);
+check('restart puts it all back', S.phase === 'countdown' && S.score[0] + S.score[1] === 0 && !S.ot && S.winner === -1 && S.turn === 0 && S.turnLimit === 2 && S.discs[0].x === 70 && S.round === 0);
+check('every stadium has its own turn limit, bigger stadiums get more turns', Sim.SIZES.map((z) => Sim.geo(z).turns).every((t, i, l) => t > 0 && (!i || t > l[i - 1])));
+check('and the snapshot carries the turn and the limit', (() => { const T = live(mk([0, 1], { turns: 5 })); const w = Sim.parseSnapshot(JSON.parse(JSON.stringify(Sim.snapshot(T)))); return w.turn === 0 && w.turnLimit === 5; })());
 
 console.log('team names and mascots');
 S = mk();
@@ -214,6 +242,7 @@ S = live(mk([0, 1, 0, 1, 0, 1]));
 let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 let bad = '';
 for (let round = 0; round < 80 && S.phase !== 'over' && !bad; round++) {
+  pump(S);
   if (S.phase === 'plan') {
     for (const d of S.discs) if (rnd() < 0.8) { const ang = rnd() * Math.PI * 2, pw = 0.2 + rnd() * 3; Sim.setPlan(S, S.owner[d.i], d.i, Math.cos(ang) * pw, Math.sin(ang) * pw); }
     lockAll(S);
@@ -348,8 +377,8 @@ console.log('desert: the sandstorm race');
   let S = skipWarmup(arena('desert', [0, 1, 0, 1]));
   check('the first round opens with a sandstorm instead of planning', S.phase === 'storm' && S.mini.kind === 'dig' && S.mini.race && S.mini.who.length === 4 && take(S, 'storm').length === 1);
   check('nobody can plan during the storm', Sim.setPlan(S, 0, 0, 1, 0) === false && S.phase === 'storm');
-  const clock = S.clock; run(S, 1);
-  check('and the match clock stands still', S.clock === clock);
+  const turn = S.turn; run(S, 1);
+  check('and no turn is counted', S.turn === turn);
   check('a claim from someone who is not in the race is ignored', Sim.miniDone(S, 9, 3000) === false);
   Sim.miniDone(S, 0, 3400); check('the first finisher does not win yet: others get a moment', S.phase === 'storm');
   Sim.miniDone(S, 3, 2600);
@@ -597,8 +626,12 @@ console.log('sizes: local 3 v 3, little league 4 v 4, premier league 5 v 5');
   check('an attacking line stands further up the pitch than a defensive one', (() => { const x = (id) => Math.max(...Sim.formsFor(4).find((f) => f.id === id).pts.map((q) => q[0])); return x('attack') > x('defend'); })());
   T = live(sized('little')); Sim.setFormation(T, 1, 'defend');
   T.ball.x = gl.W - 120; T.ball.y = gl.H / 2; T.ball.vx = 1400; park(T);
-  Sim.setPlan(T, 0, 0, 1, 0); lockAll(T); run(T, 0.5 + C.GOAL_PAUSE + 0.2);
-  check('after a goal both teams line up in their chosen formation again', T.phase === 'plan' && T.discs[4].x === gl.W - Math.round(Sim.formsFor(4).find((f) => f.id === 'defend').pts[0][0] * gl.W), `${T.phase} ${T.discs[4].x}`);
+  Sim.setPlan(T, 0, 0, 1, 0); lockAll(T); run(T, 0.5 + C.GOAL_PAUSE + 0.2); Sim.skipReplay(T);
+  const defX = (U, id) => gl.W - Math.round(Sim.formsFor(4).find((f) => f.id === id).pts[0][0] * gl.W);
+  check('after a goal both teams line up in their chosen formation again, and may change it', T.phase === 'form' && T.discs[4].x === defX(T, 'defend'), `${T.phase} ${T.discs[4].x}`);
+  check('a new formation is shown at once, and takes back a ready flag', (Sim.formReady(T, 1, true), Sim.chooseFormation(T, 1, 'attack') && T.form[1] === 'attack' && T.discs[4].x === defX(T, 'attack') && !T.fy[1]));
+  check('a made-up formation is refused, and formations can only be changed in this phase', Sim.chooseFormation(T, 1, 'nonsense') === false && (Sim.formReady(T, 0, true), Sim.formReady(T, 1, true), T.phase === 'plan' && Sim.chooseFormation(T, 1, 'defend') === false && Sim.formReady(T, 0, true) === false));
+  check('the snapshot of the pick carries the formations and who is ready, and nothing outside it', (() => { const U = live(sized('little')); U.phase = 'form'; U.fy = [true, false]; const w = Sim.parseSnapshot(JSON.parse(JSON.stringify(Sim.snapshot(U)))); U.phase = 'plan'; return w.forms && w.forms.length === 2 && w.formReady.join() === '1,0' && Sim.parseSnapshot(Sim.snapshot(U)).forms === null; })());
   T = sized('local'); Sim.setFormation(T, 0, 'attack'); Sim.setSize(T, 'premier');
   check("changing the stadium resets the formations to the new size's default", T.n === 5 && T.discs.length === 10 && T.form[0] === Sim.formsFor(5)[0].id);
   check('and a restart keeps the chosen formation', (Sim.setFormation(T, 1, 'defend'), Sim.restart(T), T.form[1] === 'defend'));
@@ -612,6 +645,7 @@ console.log('sizes: local 3 v 3, little league 4 v 4, premier league 5 v 5');
       for (let i = 0; i < 30 * 60 && first < 0; i++) {
         if (U.phase === 'storm' && U.mini) for (const q of U.mini.who) Sim.miniDone(U, q, 2000);
         if (U.mini && !U.mini.race) Sim.miniDone(U, U.mini.pid, 2000);
+        pump(U);
         if (U.phase === 'plan' && U.t < 20) { Sim.setReady(U, 0, true); Sim.setReady(U, 1, true); }
         Sim.step(U);
         if (Sim.takeEvents(U).some((e) => ['heckle', 'storm', 'omen', 'bolt-warn'].includes(e[0]))) first = i / 60;
@@ -628,6 +662,7 @@ console.log('sizes: local 3 v 3, little league 4 v 4, premier league 5 v 5');
       let sd = 77; const rn = () => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
       let bad = '', stuck = 0;
       for (let k = 0; k < 60 * 60 * 3 && T.phase !== 'over' && !bad; k++) {
+        pump(T);
         if (T.phase === 'plan') { for (const d of T.discs) if (rn() < 0.8) { const a = rn() * 6.28, pw = 0.2 + rn() * 3; Sim.setPlan(T, T.owner[d.i], d.i, Math.cos(a) * pw, Math.sin(a) * pw); } lockAll(T); }
         if (T.mini) for (const q of T.mini.who) if (rn() < 0.02) Sim.miniDone(T, q, 1500);
         Sim.step(T); Sim.takeEvents(T);
@@ -644,25 +679,61 @@ console.log('sizes: local 3 v 3, little league 4 v 4, premier league 5 v 5');
   }
 }
 
-console.log(fails ? `\n${fails} FAILED` : '\nall passed');
-process.exit(fails ? 1 : 0);
-
-console.log('a quiet first minute');
+console.log('a quiet start: no arena event in the first 4 turns, then they begin');
 {
-  C.FX_START = 60;
+  C.FX_START = 4;
   const all = (T) => Sim.takeEvents(T).map((e) => e[0]);
   const fx = ['heckle', 'storm', 'omen', 'bolt-warn'];
   for (const map of ['stadium', 'desert', 'tundra', 'rainforest']) {
-    const T = arena(map); live(T);
-    let early = [], elapsed = () => T.seconds - T.clock;
-    while (elapsed() < C.FX_START - 3 && !T.winner && T.score[0] + T.score[1] === 0) {
-      lockAll(T); run(T, C.PLAN_TIME + 0.2); settle(T);
+    const T = Sim.create({ players: [{ id: 0, side: 0 }, { id: 1, side: 1 }], map, seed: 11, rate: 1000, turns: 99 }); live(T); park(T);
+    let early = [];
+    for (let t = 0; t < 3; t++) {
+      Sim.setPlan(T, 0, 0, 0.05, 0.05); Sim.setReady(T, 0, true); Sim.setReady(T, 1, true); run(T, 20); settle(T, 40);
       early = early.concat(all(T));
+      check(`${map}: nothing is going on after turn ${T.turn}`, T.phase === 'plan' && !T.mini && !T.bales.length && !T.bolt && !T.omen);
     }
-    check(`${map}: no event in the first minute (${elapsed().toFixed(0)} s played, ${T.round} rounds)`, !early.some((n) => fx.includes(n)) && !T.mini && !T.bales.length && !T.bolt && elapsed() > 30, early.filter((n) => fx.includes(n)).join());
-    let late = [];
-    for (let r = 0; r < 12 && !late.some((n) => fx.includes(n)); r++) { lockAll(T); run(T, C.PLAN_TIME + 0.2); settle(T); late = late.concat(all(T)); }
-    check(`${map}: events start once the minute is up`, late.some((n) => fx.includes(n)), late.join());
+    check(`${map}: no event in the first 3 turns, and the 4th is still quiet while it is played (turn ${T.turn}, round ${T.round})`, T.turn === 3 && !early.some((n) => fx.includes(n)), early.filter((n) => fx.includes(n)).join());
+    Sim.setPlan(T, 0, 0, 0.05, 0.05); Sim.setReady(T, 0, true); Sim.setReady(T, 1, true); run(T, 20); settle(T, 40);
+    let late = all(T);
+    check(`${map}: four turns are in the books (turn ${T.turn})`, T.turn === 4);
+    for (let r = 0; r < 12 && !late.some((n) => fx.includes(n)); r++) {
+      if (T.phase === 'storm') for (const q of T.mini.who) Sim.miniDone(T, q, 1500);
+      if (T.mini && !T.mini.race) Sim.miniDone(T, T.mini.pid, 1500);
+      run(T, 12); late = late.concat(all(T));
+      if (T.phase === 'plan') { Sim.setPlan(T, 0, 0, 0.05, 0.05); lockAll(T); settle(T, 40); }
+    }
+    check(`${map}: events start once the 4 turns are played`, late.some((n) => fx.includes(n)), late.join());
   }
   C.FX_START = 0;
 }
+
+console.log('power-ups: a glowing ball at each end of the centre line');
+{
+  const sized = (size, sides = [0, 1], opts = {}) => Sim.create(Object.assign({ players: sides.map((side, id) => ({ id, side })), size }, opts));
+  const hide = (S) => S.discs.forEach((q, i) => { q.x = 100 + (i % 4) * 90; q.y = 150 + Math.floor(i / 4) * 120; q.vx = q.vy = 0; });     // everyone far from the ball and the power-ups
+  const T = live(sized('little')), gl = Sim.geo('little');
+  check('there are two, on the centre line, one at each end', gl.pu.length === 2 && gl.pu.every((q) => q.x === gl.W / 2) && gl.pu[0].y < gl.H / 2 && gl.pu[1].y > gl.H / 2);
+  check('each fits on the pitch, and a bobble standing at the wall can reach it', gl.pu.every((q) => q.y - q.r >= 0 && q.y + q.r <= gl.H) && Math.hypot(0, gl.pu[0].y - gl.dr) < gl.dr + gl.pu[0].r);
+  check('they start available and nobody holds a boost', T.pu.every((q) => q.cd === 0) && T.boost.every((v) => !v));
+  hide(T); T.discs[0].x = gl.W / 2; T.discs[0].y = gl.dr; T.discs[0].vx = T.discs[0].vy = 0;
+  Sim.setPlan(T, 0, 1, 0.05, 0); lockAll(T); run(T, 0.05);
+  check('a bobble touching one picks it up', T.boost[0] === 1 && T.pu[0].cd === C.PU_COOL && T.pu[1].cd === 0 && Sim.takeEvents(T).some((e) => e[0] === 'pu' && e[1] === 0 && e[2] === 0), JSON.stringify(T.pu));
+  const snap = Sim.parseSnapshot(JSON.parse(JSON.stringify(Sim.snapshot(T))));
+  check('and the snapshot says so', snap.fx.pu[0] === C.PU_COOL && snap.fx.boost[0] === 1 && snap.fx.boost[1] === 0);
+  settle(T);
+  check('the taken one stays away for a few rounds, then comes back', T.pu[0].cd === C.PU_COOL - 1 && (() => { for (let i = 0; i < C.PU_COOL - 1; i++) { T.discs[0].x = 100; T.discs[0].y = 100; playTurn(T); } return T.pu[0].cd === 0; })());
+  const speedOf = (boost) => {
+    const U = live(sized('little')); hide(U); U.discs[0].x = 300; U.discs[0].y = 300; U.boost[0] = boost; U.ball.x = gl.W / 2; U.ball.y = gl.H / 2 + 200;
+    Sim.setPlan(U, 0, 0, 1, 0); lockAll(U);
+    return { v: U.discs[0].vx, held: U.boost[0], live: U.boosted[0] };
+  };
+  const plain = speedOf(0), boosted = speedOf(1);
+  check('the boost makes the next flick faster, and is used up by it', Math.abs(boosted.v / plain.v - C.PU_BOOST) < 1e-9 && boosted.held === 0 && boosted.live === 1 && plain.live === 0, `${plain.v} ${boosted.v}`);
+  const W2 = live(sized('little')); hide(W2); W2.boost[3] = 1; W2.score = [0, 0]; W2.pu[1].cd = 2;
+  W2.ball.x = gl.W - 130; W2.ball.y = gl.H / 2; W2.ball.vx = 1400; Sim.setPlan(W2, 0, 0, 1, 0); lockAll(W2); run(W2, 0.6);
+  check('a goal resets the pitch: boosts and power-ups are cleared', W2.phase === 'goal' && W2.boost.every((v) => !v) && W2.pu.every((q) => q.cd === 0));
+}
+
+console.log(fails ? `\n${fails} FAILED` : '\nall passed');
+process.exit(fails ? 1 : 0);
+

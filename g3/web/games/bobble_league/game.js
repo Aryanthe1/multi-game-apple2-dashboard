@@ -9,8 +9,10 @@
  *   guests send their plans to the host ({k:'plan', i, ax, ay, _h:true}, {k:'ready', v, _h:true}) and draw interpolated snapshots.
  *
  * Every match opens on the game menu: the host picks the gameplay style (MODES below), the stadium (STADIUMS: it sets the pitch and
- * the team size) and, for arenas, the arena; then each team's captain picks the team name, mascot and formation; the match starts
- * when both captains are ready.  The game always fills the window and asks for real
+ * the team size) and, for arenas, the arena; then each team's captain picks the team name and mascot (one screen) and the formation,
+ * where the bobbles stand (a second screen); the match starts when both captains are ready on the second.  After every goal the
+ * clients play back an action replay of it (from frames they recorded), and then the captains may pick a new formation for the next
+ * round.  A glowing power-up ball sits at each end of the centre line.  The game always fills the window and asks for real
  * fullscreen as soon as the browser allows it.
  */
 (function () {
@@ -235,10 +237,12 @@
         <canvas id="blCanvas"></canvas>
         <div class="bl-over bl-menu" id="blMenu"></div>
         <div class="bl-over hidden" id="blOver"></div>
+        <div class="bl-formbar hidden" id="blForm"></div>
         <div class="bl-pop" id="blPop"></div>
       </div>
       <div class="bl-bar">
         <button data-bl="ready" id="blReady" class="bl-lock" style="display:none"></button>
+        ${isHost ? '<button data-bl="skip" id="blSkip" style="display:none">[ SKIP REPLAY ]</button>' : ''}
         <button data-bl="fs">[ FULLSCREEN ]</button>
         ${isHost ? '<button data-bl="lobby">[ BACK TO LOBBY ]</button>' : ''}
         <button data-bl="leave" class="bl-danger">${isHost ? '[ CLOSE ROOM ]' : '[ LEAVE ROOM ]'}</button>
@@ -246,7 +250,7 @@
     document.body.appendChild(wrap);
     document.documentElement.classList.add('bl-open');
     const canvas = wrap.querySelector('#blCanvas'), over = wrap.querySelector('#blOver'), menu = wrap.querySelector('#blMenu');
-    const readyBtn = wrap.querySelector('#blReady');
+    const readyBtn = wrap.querySelector('#blReady'), skipBtn = wrap.querySelector('#blSkip'), formEl = wrap.querySelector('#blForm');
     const g = canvas.getContext('2d');
     try { document.fonts.load('16px "Press Start 2P"'); } catch (e) { /* cosmetic */ }
 
@@ -262,8 +266,16 @@
     const snaps = [];
     let base = null, ivl = 50, lastTk = -1, latest = null;
 
+    // the action replay of a goal: frames of the roll that scored ({h: host ms, d: [x,y,...] bobbles, b: [x,y,vx,vy] ball, bales}), recorded
+    // from the sim on the host and from the snapshots on a guest, and played back during the 'replay' phase (the sim just waits)
+    const rec = [];
+    let recShots = -1, rpKey = '', rpStart = 0;
+    const frameOf = (v, h) => { const d = []; for (const q of v.discs) d.push(q.x, q.y); return { h, d, b: [v.ball.x, v.ball.y, v.ball.vx, v.ball.vy], bales: v.fx.bales.map((q) => ({ x: q.x, y: q.y, r: q.r })) }; };
+    const resetRec = () => { rec.length = 0; recShots = -1; rpKey = ''; };
+    const recording = (ph, t) => ph === 'roll' || (ph === 'goal' && t > C.GOAL_PAUSE - C.REPLAY_AFTER);       // the roll, and the ball going into the net
+
     // ------------------------------------------------------------------ the menu: mode, stadium, (arena,) then team names, mascots and formations
-    let stage = 'menu', modeId = null, selMode = 0;               // 'menu' -> 'sizes' -> ('maps' ->) 'teams' -> 'play'
+    let stage = 'menu', modeId = null, selMode = 0;               // 'menu' -> 'sizes' -> ('maps' ->) 'teams' -> 'positions' -> 'play'
     let sizeId = '', selSize = 0;                                 // the stadium: sets the pitch and how many bobbles a team has
     let mapId = 'classic', selMap = 0;                            // the arena ('classic' is the plain pitch)
     const T = { names: [TEAM[0].name, TEAM[1].name], mascots: [0, 1], forms: ['', ''], ready: [false, false] };      // what the team setup screen shows
@@ -288,7 +300,7 @@
     const canEdit = (side) => captainOf(side) === you();
     const playersOf = (side) => { const r = ctx.room(); return r ? (r.slots.length < 2 ? r.slots : r.slots.filter((s, i) => i % 2 === side)) : []; };
 
-    function renderStage() { if (stage === 'menu') renderMenu(); else if (stage === 'sizes') renderSizes(); else if (stage === 'maps') renderMaps(); else if (stage === 'teams') renderSetup(false); }
+    function renderStage() { if (stage === 'menu') renderMenu(); else if (stage === 'sizes') renderSizes(); else if (stage === 'maps') renderMaps(); else if (stage === 'teams' || stage === 'positions') renderSetup(false); }
 
     function renderSizes() {
       menu.classList.remove('hidden', 'teams');
@@ -336,32 +348,40 @@
     }
 
     const formButtons = (s, can) => Sim.formsFor(G.n).map((f) => `<button data-bl="form" data-side="${s}" data-id="${f.id}" class="${formOf(s).id === f.id ? 'sel' : ''}" ${can ? '' : 'disabled'}>${f.name}<i>${f.shape}</i></button>`).join('');
-    function panelHTML(s) {
+    // the team screen (name and mascot) and, as a screen of its own, the positions screen (formation)
+    function panelHTML(s, part) {
       const can = canEdit(s), cap = slotOf(captainOf(s));
       const who = playersOf(s).map((p) => '@' + esc(p.n)).join(' ');
-      return `<div class="bl-team t${s}">
-        <div class="bl-team-head"><span class="bl-team-em" data-em="${s}">${mascotOf(T.mascots[s])}</span><b>TEAM ${s + 1}</b><span class="bl-sub">${who || '-'}</span></div>
+      const head = `<div class="bl-team-head"><span class="bl-team-em" data-em="${s}">${mascotOf(T.mascots[s])}</span><b>${part === 'positions' ? esc(T.names[s]) : 'TEAM ' + (s + 1)}</b><span class="bl-sub">${who || '-'}</span></div>`;
+      const ready = `<button class="bl-ready ${T.ready[s] ? 'on' : ''}" data-bl="teamready" data-side="${s}" ${can ? '' : 'disabled'}>${T.ready[s] ? '[ ✔ READY ]' : '[ READY ]'}</button>`;
+      const note = `<div class="bl-sub" data-note="${s}">${can ? 'you are the captain' : `waiting for captain @${esc(cap ? cap.n : '?')}`}</div>`;
+      if (part === 'positions') {
+        return `<div class="bl-team t${s}">${head}
+          <div class="bl-field">FORMATION: <b data-shape="${s}">${formOf(s).name} ${formOf(s).shape}</b></div>
+          <div class="bl-formrow"><div class="bl-forms" data-forms="${s}">${formButtons(s, can)}</div><div class="bl-formview" data-fv="${s}">${formView(s)}</div></div>
+          ${ready}${note}
+        </div>`;
+      }
+      return `<div class="bl-team t${s}">${head}
         <label class="bl-field">TEAM NAME<input class="bl-name" data-side="${s}" maxlength="${C.NAME_MAX}" spellcheck="false" autocomplete="off" value="${esc(T.names[s])}" ${can ? '' : 'disabled'}></label>
         <div class="bl-field">TEAM MASCOT</div>
         <div class="bl-mascots">${MASCOTS.map((m, i) => `<button data-bl="mascot" data-side="${s}" data-i="${i}" title="${m[1]}" class="${T.mascots[s] === i ? 'sel' : ''}" ${can ? '' : 'disabled'}>${m[0]}</button>`).join('')}</div>
-        <div class="bl-field">FORMATION: <b data-shape="${s}">${formOf(s).name} ${formOf(s).shape}</b></div>
-        <div class="bl-formrow"><div class="bl-forms" data-forms="${s}">${formButtons(s, can)}</div><div class="bl-formview" data-fv="${s}">${formView(s)}</div></div>
-        <button class="bl-ready ${T.ready[s] ? 'on' : ''}" data-bl="teamready" data-side="${s}" ${can ? '' : 'disabled'}>${T.ready[s] ? '[ ✔ READY ]' : '[ READY ]'}</button>
-        <div class="bl-sub" data-note="${s}">${can ? 'you are the captain' : `waiting for captain @${esc(cap ? cap.n : '?')}`}</div>
+        ${ready}${note}
       </div>`;
     }
     // where the team will stand at kick-off (the whole stadium, this team only)
     const formView = (s) => pitchSvg(G, [s === 0 ? formOf(0).id : '', s === 1 ? formOf(1).id : ''], 0);
 
     function renderSetup(force) {
-      if (stage !== 'teams') return;
+      if (stage !== 'teams' && stage !== 'positions') return;
+      const pos = stage === 'positions';
       menu.classList.remove('hidden'); menu.classList.add('teams');
       const typing = !force && menu.contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
       if (typing) { patchSetup(); return; }                       // keep the cursor where it is
-      menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: PICK YOUR TEAMS</h2>
-        <div class="bl-teams">${panelHTML(0)}${panelHTML(1)}</div>
-        <div class="bl-sub">THE MATCH STARTS WHEN BOTH CAPTAINS ARE READY</div>
-        ${isHost ? `<div class="bl-row"><button data-bl="back">[ &lt; BACK TO ${arenaOf(mapId) ? 'ARENAS' : 'STADIUMS'} ]</button></div>` : ''}`;
+      menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: ${pos ? 'CHOOSE YOUR POSITIONS' : 'PICK YOUR TEAMS'}</h2>
+        <div class="bl-teams">${panelHTML(0, stage)}${panelHTML(1, stage)}</div>
+        <div class="bl-sub">${pos ? 'WHERE YOUR BOBBLES STAND AT KICK-OFF. THE MATCH STARTS WHEN BOTH CAPTAINS ARE READY. YOU CAN CHANGE IT AFTER EVERY GOAL' : 'NAME AND MASCOT. WHEN BOTH CAPTAINS ARE READY YOU MOVE ON TO THE POSITIONS'}</div>
+        ${isHost ? `<div class="bl-row"><button data-bl="back">[ &lt; BACK TO ${pos ? 'TEAMS' : arenaOf(mapId) ? 'ARENAS' : 'STADIUMS'} ]</button></div>` : ''}`;
     }
     function patchSetup() {
       for (const s of [0, 1]) {
@@ -413,28 +433,52 @@
       goFullscreen();
       G3.beep(660, 0.1, 'square');
     }
+    function toPositions() {                                       // host: both captains are happy with the teams, now where everyone stands
+      T.ready = [false, false];
+      stage = 'positions'; setModeLabel(); broadcastSetup(); renderSetup(true);
+      G3.beep(660, 0.1, 'square');
+    }
     function broadcastSetup() { ctx.send({ k: 'setup', st: stage, mode: modeId, size: sizeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice(), forms: T.forms.slice(), ready: T.ready.slice() }); }
 
     // host: a captain changed their team (or pressed READY)
     function applyTeam(from, d) {
-      if (!isHost || stage !== 'teams' || !d || typeof d !== 'object') return;
+      if (!isHost || !d || typeof d !== 'object') return;
+      if (stage === 'play') { applyForm(from, d); return; }
+      if (stage !== 'teams' && stage !== 'positions') return;
       const s = d.side === 1 ? 1 : 0;
       if (captainOf(s) !== from) return;
       let changed = false;
-      if (typeof d.name === 'string' || d.mascot !== undefined) {
+      if (stage === 'teams' && (typeof d.name === 'string' || d.mascot !== undefined)) {
         Sim.setTeam(sim, s, typeof d.name === 'string' ? d.name : undefined, d.mascot);
         T.names[s] = sim.teams[s].name; T.mascots[s] = sim.teams[s].mascot;
         changed = true;
       }
-      if (typeof d.form === 'string' && Sim.setFormation(sim, s, d.form)) { T.forms[s] = sim.form[s]; changed = true; }
+      if (stage === 'positions' && typeof d.form === 'string' && Sim.setFormation(sim, s, d.form)) { T.forms[s] = sim.form[s]; changed = true; }
       if (changed) T.ready[s] = false;                            // changing anything un-readies
       if (typeof d.ready === 'boolean') T.ready[s] = d.ready;
       broadcastSetup();
       renderSetup(false);
-      if (T.ready[0] && T.ready[1]) beginMatch();
+      if (T.ready[0] && T.ready[1]) { if (stage === 'teams') toPositions(); else beginMatch(); }
+    }
+    // host: a captain picked a formation / is ready, in the pause after a goal
+    function applyForm(from, d) {
+      if (!sim || sim.phase !== 'form') return;
+      const s = d.side === 1 ? 1 : 0;
+      if (captainOf(s) !== from) return;
+      if (typeof d.form === 'string') Sim.chooseFormation(sim, s, d.form);
+      if (typeof d.ready === 'boolean') Sim.formReady(sim, s, d.ready);
+      forceSnap = true;
+    }
+    const readyNow = (side) => (stage === 'play' ? !!(lastView && lastView.formReady && lastView.formReady[side]) : T.ready[side]);
+    // a captain's pick during the match: tell the host (or be the host)
+    function sendForm(side, fields) {
+      if (!canEdit(side)) return;
+      if (isHost) applyForm(you(), Object.assign({ side }, fields));
+      else ctx.send(Object.assign({ k: 'team', side }, fields), true);
     }
     // a captain's edit: tell the host (or be the host)
     function sendTeam(side, fields) {
+      if (stage === 'play') { sendForm(side, fields); return; }
       if (!canEdit(side)) return;
       if (isHost) applyTeam(you(), Object.assign({ side }, fields));
       else {
@@ -458,7 +502,7 @@
     });
 
     function beginMatch() {                                        // host: both captains are ready
-      stage = 'play'; plans = {}; lastRound = -1; clearPops();
+      stage = 'play'; plans = {}; lastRound = -1; clearPops(); resetRec();
       menu.classList.add('hidden'); over.classList.add('hidden'); shownOver = false;
       Sim.setMap(sim, mapId, (Math.random() * 4294967296) >>> 0);            // the seed makes the arena's random events
       setGeo(sizeId);
@@ -468,14 +512,15 @@
       G3.beep(880, 0.12, 'square');
     }
 
-    function goBack() {                                           // host: one step back (teams -> arenas -> stadiums -> modes)
-      if (stage === 'teams' && arenaOf(mapId)) { mapId = 'classic'; show('maps'); }
+    function goBack() {                                           // host: one step back (positions -> teams -> arenas -> stadiums -> modes)
+      if (stage === 'positions') toTeams();
+      else if (stage === 'teams' && arenaOf(mapId)) { mapId = 'classic'; show('maps'); }
       else if (stage === 'teams' || stage === 'maps') { mapId = 'classic'; show('sizes'); }
       else showMenu();
     }
     function showMenu() {                                         // host: back to the modes (also from a finished match)
       if (!isHost) return;
-      stage = 'menu'; modeId = null; sizeId = ''; mapId = 'classic'; drag = null; plans = {};
+      stage = 'menu'; modeId = null; sizeId = ''; mapId = 'classic'; drag = null; plans = {}; resetRec();
       over.classList.add('hidden'); shownOver = false;
       setModeLabel(); renderMenu();
       ctx.send({ k: 'menu' });
@@ -494,7 +539,7 @@
 
     function snapInterval() {
       const r = ctx.room();
-      if (sim && (sim.phase === 'plan' || sim.phase === 'over' || sim.phase === 'storm')) return 1000 / IDLE_RATE;     // nothing moves: a slow trickle keeps the timer honest
+      if (sim && ['plan', 'over', 'storm', 'replay', 'form'].includes(sim.phase)) return 1000 / IDLE_RATE;     // nothing moves: a slow trickle keeps the timer honest
       const guests = Math.max(1, (r ? r.slots.length : 2) - 1);
       let rate = RATE[r && r.transport] || 15;
       if (r && r.transport === 'online') rate = clamp(40 / guests, 4, rate);      // every guest is its own publish to every broker
@@ -502,7 +547,7 @@
       return 1000 / rate;
     }
 
-    const LOUD = new Set(['exec', 'goal', 'plan', 'end', 'go', 'pass', 'ot', 'kick-off', 'c', 'storm', 'storm-end', 'heckle', 'mini-end', 'omen', 'bales', 'bolt-warn', 'bolt', 'frost']);       // worth a snapshot right now
+    const LOUD = new Set(['exec', 'goal', 'replay', 'form', 'pu', 'plan', 'end', 'go', 'pass', 'ot', 'kick-off', 'c', 'storm', 'storm-end', 'heckle', 'mini-end', 'omen', 'bales', 'bolt-warn', 'bolt', 'frost']);       // worth a snapshot right now
     function hostTick() {
       if (!sim || stage !== 'play') return;
       const now = performance.now();
@@ -510,8 +555,10 @@
       sinceSnap += now - lastTick;
       lastTick = now;
       let n = 0;
+      hostRec();
       while (acc >= C.STEP && n < 8) {
         Sim.step(sim); acc -= C.STEP; n++;
+        hostRec();
         for (const e of Sim.takeEvents(sim)) {
           fx(e, { ball: sim.ball, owners: sim.owner });
           if (outEv.length < 14) outEv.push(e);
@@ -526,6 +573,17 @@
       }
     }
 
+    /** Host: keep a frame of the roll (about 30 a second) for the replay if it ends in a goal. */
+    function hostRec() {
+      if (!recording(sim.phase, sim.t)) return;
+      if (recShots !== sim.shots) { rec.length = 0; recShots = sim.shots; }
+      if (rec.length && (sim.tick === rec[rec.length - 1].tk || sim.tick & 1)) return;
+      const fr = frameOf(Sim.view(sim, 1), sim.tick * 1000 / 60);
+      fr.tk = sim.tick;
+      rec.push(fr);
+      if (rec.length > 900) rec.shift();
+    }
+
     function onSnapshot(d) {
       if (d.tk <= lastTk) return;                                 // late or duplicate
       const now = performance.now(), hostMs = d.tk * 1000 / 60;
@@ -538,13 +596,46 @@
       const off = now - hostMs;
       base = base === null ? off : Math.min(base + 0.3, off);      // best-case latency; creeps up so it can recover from a slow patch
       lastTk = d.tk;
+      if (recording(v.ph, v.t)) {                                 // keep the roll for the replay
+        if (recShots !== v.shots) {
+          rec.length = 0; recShots = v.shots;
+          const pv = snaps[snaps.length - 1];
+          if (pv && !recording(pv.v.ph, pv.v.t)) rec.push(frameOf(pv.v, hostMs - 17));     // the bobbles where they stood before the flicks
+        }
+        rec.push(frameOf(v, hostMs));
+        if (rec.length > 900) rec.shift();
+      }
       snaps.push({ h: hostMs, v });
       while (snaps.length > 60 || (snaps.length > 2 && snaps[0].h < hostMs - 3000)) snaps.shift();
       latest = v;
       for (const e of v.ev) fx(e, v);
     }
 
+    /** The replay: the recorded roll that scored, played back at REPLAY_SPEED over what the sim says (score, banner ...). */
+    function replayView(v) {
+      const now = performance.now(), key = v.score[0] + '-' + v.score[1] + '|' + v.shots;
+      if (rpKey !== key) { rpKey = key; rpStart = now; trail.length = 0; }
+      if (rec.length < 2) return v;
+      const endH = rec[rec.length - 1].h, startH = Math.max(rec[0].h, endH - v.replay * 1000);
+      const h = Math.min(endH, startH + (now - rpStart) * C.REPLAY_SPEED);
+      let i = rec.length - 2;
+      while (i > 0 && rec[i].h > h) i--;
+      const a = rec[i], b = rec[i + 1], k = clamp((h - a.h) / Math.max(1, b.h - a.h), 0, 1), L = (x, y) => x + (y - x) * k;
+      const bales = b.bales.length === a.bales.length ? b.bales.map((q, n) => ({ x: L(a.bales[n].x, q.x), y: L(a.bales[n].y, q.y), r: q.r })) : b.bales;
+      return Object.assign({}, v, {
+        discs: v.discs.map((q, n) => ({ i: q.i, side: q.side, x: L(a.d[2 * n], b.d[2 * n]), y: L(a.d[2 * n + 1], b.d[2 * n + 1]) })),
+        ball: { x: L(a.b[0], b.b[0]), y: L(a.b[1], b.b[1]), vx: b.b[2], vy: b.b[3] },
+        fx: Object.assign({}, v.fx, { bales }),
+        replayPos: clamp((h - startH) / Math.max(1, endH - startH), 0, 1),
+      });
+    }
+
     function currentView() {
+      const v = liveView();
+      return v && v.ph === 'replay' ? replayView(v) : v;
+    }
+
+    function liveView() {
       if (isHost) {
         const alpha = clamp((acc + (performance.now() - lastTick) / 1000) / C.STEP, 0, 1);
         return Sim.view(sim, alpha);
@@ -696,13 +787,14 @@
       else if (a === 'map') chooseMap(+b.dataset.i);
       else if (a === 'form') sendTeam(+b.dataset.side, { form: b.dataset.id });
       else if (a === 'mascot') sendTeam(+b.dataset.side, { mascot: +b.dataset.i });
-      else if (a === 'teamready') sendTeam(+b.dataset.side, { ready: !T.ready[+b.dataset.side] });
+      else if (a === 'teamready') sendTeam(+b.dataset.side, { ready: !readyNow(+b.dataset.side) });
+      else if (a === 'skip') { if (isHost && sim && Sim.skipReplay(sim)) forceSnap = true; }
       else if (a === 'back') goBack();
       else if (a === 'menu') showMenu();
       else if (a === 'ready') toggleReady();
       else if (a === 'lobby') ctx.backToLobby();
       else if (a === 'leave') ctx.leave();
-      else if (a === 'rematch' && sim) { clearPops(); Sim.restart(sim); plans = {}; lastRound = -1; acc = 0; lastTick = performance.now(); forceSnap = true; shownOver = false; over.classList.add('hidden'); }
+      else if (a === 'rematch' && sim) { clearPops(); resetRec(); Sim.restart(sim); plans = {}; lastRound = -1; acc = 0; lastTick = performance.now(); forceSnap = true; shownOver = false; over.classList.add('hidden'); }
     });
 
     // ------------------------------------------------------------------ arena minigames (on my own screen; the host hears how long I took)
@@ -753,6 +845,12 @@
           for (let i = 0; i < 120; i++) spark(x, G.H / 2, [TEAM[e[1]].main, '#fff', '#ffd43b', TEAM[e[1]].light][i % 4], 650, true);
           break;
         }
+        case 'replay': beep(300, 0.2, 'sawtooth'); setTimeout(() => beep(450, 0.2, 'sawtooth'), 150); break;
+        case 'form': beep(520, 0.1, 'square'); break;
+        case 'pu':                                                    // [bobble, which]: a bobble took a power-up
+          [600, 800, 1100].forEach((fr, i) => setTimeout(() => beep(fr, 0.09, 'square'), i * 70));
+          for (let i = 0; i < 14; i++) spark(G.pu[e[2]].x, G.pu[e[2]].y, ['#ffd43b', '#ffffff', '#fff27a'][i % 3], 300);
+          break;
         case 'kick-off': kickT = 1; break;
         case 'pass': beep(210, 0.15, 'sawtooth'); break;
         case 'ot': beep(330, 0.4, 'sawtooth'); break;
@@ -879,6 +977,7 @@
         g.fillStyle = `rgba(255,255,255,${(i / trail.length) * 0.24 * Math.min(1, sp / 1100)})`;
         g.beginPath(); g.arc(q.x, q.y, G.br * (0.4 + 0.6 * i / trail.length), 0, 7); g.fill();
       }
+      drawPickups(v, t);
       drawOmens(v, t);
       if (v.ph === 'plan') drawRings(v, t);
       for (const d of v.discs) drawDisc(d, v, t);
@@ -891,8 +990,45 @@
       drawParts(dt);
       drawAmbient(v, dt, t);
       drawBolts(dt);
+      drawReplay(v, t);
       drawHud(v, t);
       goalT = Math.max(0, goalT - dt); kickT = Math.max(0, kickT - dt);
+    }
+
+    // the two power-up balls, one at each end of the centre line: a bobble that touches one gets a faster next flick
+    function drawPickups(v, t) {
+      for (let k = 0; k < 2; k++) {
+        const { x, y, r } = G.pu[k], cd = v.fx.pu[k], pul = 0.5 + 0.5 * Math.sin(t * 4 + k * 3);
+        if (cd > 0) {                                               // taken: an empty ring that says when it is back
+          g.strokeStyle = 'rgba(255,212,59,.4)'; g.lineWidth = 2.5; g.setLineDash([5, 5]);
+          g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke(); g.setLineDash([]);
+          g.fillStyle = 'rgba(255,212,59,.75)'; g.font = `${r * 0.95}px "Press Start 2P", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(cd), x, y + 1);
+          continue;
+        }
+        g.save();
+        g.shadowColor = '#ffd43b'; g.shadowBlur = (16 + 14 * pul) * G.u;
+        const grad = g.createRadialGradient(x - r * 0.3, y - r * 0.3, 1, x, y, r * 1.1);
+        grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.45, '#fff27a'); grad.addColorStop(1, '#ff9f1c');
+        g.fillStyle = grad; g.beginPath(); g.arc(x, y, r * (1 + 0.07 * pul), 0, 7); g.fill();
+        g.restore();
+        g.strokeStyle = `rgba(255,255,255,${0.55 + 0.4 * pul})`; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, r * (1.35 + 0.15 * pul), 0, 7); g.stroke();
+        g.fillStyle = '#5a3200'; emoji('⚡', x, y, r * 1.15);
+      }
+    }
+
+    // the action replay: a tint, scan lines, the REC badge and a progress bar over the pitch
+    function drawReplay(v, t) {
+      if (v.ph !== 'replay') return;
+      g.fillStyle = 'rgba(30,40,90,.12)'; g.fillRect(0, 0, G.W, G.H);
+      g.fillStyle = 'rgba(0,0,0,.12)';
+      for (let y = 0; y < G.H; y += 7) g.fillRect(0, y, G.W, 2);
+      g.save(); g.translate(14 * HS, 14 * HS); g.scale(HS, HS);
+      g.fillStyle = 'rgba(4,6,30,.85)'; g.fillRect(0, 0, 210, 30);
+      g.fillStyle = Math.floor(t * 2) % 2 ? '#ff3b4a' : 'rgba(255,59,74,.35)'; g.beginPath(); g.arc(16, 15, 6, 0, 7); g.fill();
+      g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = '11px "Press Start 2P", monospace'; g.fillText('ACTION REPLAY', 30, 16);
+      g.restore();
+      g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(0, G.H - 5 * HS, G.W, 5 * HS);
+      g.fillStyle = '#ff3b4a'; g.fillRect(0, G.H - 5 * HS, G.W * clamp(v.replayPos || 0, 0, 1), 5 * HS);
     }
 
     // ------------------------------------------------------------------ arena effects
@@ -1157,6 +1293,15 @@
           });
           break;
         }
+        case 'pu': {                                                        // [bobble, which]
+          const side = e[1] < G.n ? 0 : 1;
+          pop('pu', {
+            icon: '⚡', tone: '#ffd43b', life: 3.5,
+            title: (v) => `${v.teams[side].name} GOT A POWER-UP!`,
+            sub: `THAT BOBBLE'S NEXT FLICK IS ${Math.round((C.PU_BOOST - 1) * 100)}% FASTER. THE BALL COMES BACK IN A FEW ROUNDS`,
+          });
+          break;
+        }
         case 'frost':                                                       // [bobble, level]
           if (e[2] > 0) pop('frost', {
             icon: '🥶', tone: '#bfe9ff', life: 5,
@@ -1197,6 +1342,12 @@
     // frostbite, stun, a splat, a padlock: what has happened to a bobble
     function drawStatus(d, v, t) {
       const fx = v.fx, r = G.dr, fr = fx.frost[d.i], st = fx.stun[d.i], bk = fx.block[d.i];
+      if (fx.boost[d.i]) {                                                  // holds a power-up: its next flick is boosted
+        g.save(); g.shadowColor = '#ffd43b'; g.shadowBlur = 16;
+        g.strokeStyle = `rgba(255,212,59,${0.6 + 0.35 * Math.sin(t * 8)})`; g.lineWidth = 4;
+        g.beginPath(); g.arc(d.x, d.y, r + 4, 0, 7); g.stroke(); g.restore();
+        g.fillStyle = '#fff'; emoji('⚡', d.x + r * 0.78, d.y - r * 0.78, r * 0.9);
+      }
       if (fr > 0) {
         g.fillStyle = `rgba(200,236,255,${[0, 0.28, 0.5, 0.8][fr]})`; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
         g.strokeStyle = `rgba(255,255,255,${0.4 + 0.15 * fr})`; g.lineWidth = 2;
@@ -1347,7 +1498,7 @@
       }
       g.textAlign = 'center'; g.textBaseline = 'middle';
       if (v.ot) { g.fillStyle = Math.floor(t * 3) % 2 ? '#ffd43b' : '#fff'; g.font = pix(8); g.fillText('SUDDEN', cx, y + 22); g.fillText('DEATH', cx, y + 38); }
-      else { const s = Math.ceil(v.clock); g.fillStyle = s <= 15 ? '#ff5c7a' : '#fff'; g.font = pix(18); g.fillText(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, cx, y + 26); g.font = pix(7); g.fillStyle = '#9fb0ff'; g.fillText('FIRST TO ' + G.goalLimit, cx, y + 46); }
+      else { const n = Math.min(v.turnLimit || 1, v.turn + 1), last = n >= (v.turnLimit || 1); g.fillStyle = last ? '#ff5c7a' : '#fff'; g.font = pix(9); g.fillText(`TURN ${n}/${v.turnLimit}`, cx, y + 24); g.font = pix(7); g.fillStyle = last ? '#ff9fb0' : '#9fb0ff'; g.fillText(last ? 'LAST TURN' : 'FIRST TO ' + G.goalLimit, cx, y + 46); }
 
       // the banner under the pitch
       g.restore(); g.save(); g.translate(mx, G.H + 14 * HS); g.scale(HS, HS);
@@ -1371,6 +1522,10 @@
         g.fillStyle = '#9fb0ff'; g.font = pix(10); g.fillText('EVERYTHING MOVES AT ONCE...', cx, by + 23);
       } else if (v.ph === 'goal') {
         g.fillStyle = TEAM[v.lastGoal] ? TEAM[v.lastGoal].light : '#fff'; g.font = pix(10); g.fillText(`${v.teams[v.lastGoal] ? v.teams[v.lastGoal].name : ''} SCORES`, cx, by + 23);
+      } else if (v.ph === 'replay') {
+        g.fillStyle = '#ff7a8a'; g.font = pix(10); g.fillText(`ACTION REPLAY: ${v.teams[v.lastGoal] ? v.teams[v.lastGoal].name : ''} SCORES`, cx, by + 23);
+      } else if (v.ph === 'form') {
+        g.fillStyle = '#ffd43b'; g.font = pix(10); g.fillText(`NEXT ROUND: CHOOSE YOUR POSITIONS  ${Math.ceil(v.t)}`, cx, by + 23);
       } else if (v.ph === 'countdown') {
         g.fillStyle = '#fff'; g.font = pix(10); g.fillText('GET READY', cx, by + 23);
       }
@@ -1395,11 +1550,35 @@
     function syncBar(v) {
       const show = stage === 'play' && !!v && v.ph === 'plan' && v.discs.some((d) => mineDisc(v, d) && !v.fx.block[d.i]);
       readyBtn.style.display = show ? '' : 'none';
+      if (skipBtn) skipBtn.style.display = stage === 'play' && !!v && v.ph === 'replay' ? '' : 'none';
       if (!show) return;
       const ready = iAmReady(v), n = Object.keys(plans).length;
       const txt = ready ? '[ ✔ LOCKED IN: CLICK TO EDIT ]' : `[ LOCK IN${n ? ` ${n} MOVE${n === 1 ? '' : 'S'}` : ''} ]`;
       if (barText !== txt) { barText = txt; readyBtn.textContent = txt; }
       readyBtn.classList.toggle('on', ready);
+    }
+
+    // after a goal: the captains pick their formations; the pitch shows them live (a bar over the bottom of the stage)
+    let formKey = '';
+    function formHTML(v) {
+      const forms = Sim.formsFor(G.n);
+      const block = (s) => {
+        const can = canEdit(s), ready = !!v.formReady[s], cap = slotOf(captainOf(s)), tm = v.teams[s];
+        return `<div class="bl-fteam t${s}">
+          <span class="bl-fname">${mascotOf(tm.mascot)} ${esc(tm.name)}<em>${can ? 'you are the captain' : `captain @${esc(cap ? cap.n : '?')}`}</em></span>
+          <div class="bl-forms">${forms.map((q) => `<button data-bl="form" data-side="${s}" data-id="${q.id}" class="${v.forms[s] === q.id ? 'sel' : ''}" ${can ? '' : 'disabled'}>${q.name}<i>${q.shape}</i></button>`).join('')}</div>
+          <button class="bl-ready ${ready ? 'on' : ''}" data-bl="teamready" data-side="${s}" ${can ? '' : 'disabled'}>${ready ? '[ ✔ READY ]' : '[ READY ]'}</button>
+        </div>`;
+      };
+      return `<div class="bl-fhead"><b>NEXT ROUND: CHOOSE YOUR POSITIONS</b><span>THE ROUND STARTS WHEN BOTH CAPTAINS ARE READY // <i data-ftime></i></span></div><div class="bl-fteams">${block(0)}${block(1)}</div>`;
+    }
+    function syncForm(v) {
+      const on = stage === 'play' && !!v && v.ph === 'form' && !!v.forms;
+      if (!on) { if (formKey) { formKey = ''; formEl.classList.add('hidden'); formEl.innerHTML = ''; } return; }
+      const key = [v.forms.join(), v.formReady.join(), captainOf(0), captainOf(1), you()].join('|');
+      if (key !== formKey) { formKey = key; formEl.innerHTML = formHTML(v); formEl.classList.remove('hidden'); }
+      const el = formEl.querySelector('[data-ftime]'), txt = Math.ceil(v.t) + 's';
+      if (el && el.textContent !== txt) el.textContent = txt;
     }
 
     // ------------------------------------------------------------------ overlay + frame loop
@@ -1426,7 +1605,7 @@
     function frame(ts) {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(0.1, (ts - prevT) / 1000); prevT = ts;
-      if (stage !== 'play') { bgMap = mapId; syncMini(null); clearPops(); resize(); if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); } syncBar(null); return; }
+      if (stage !== 'play') { bgMap = mapId; syncMini(null); clearPops(); resize(); if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); } syncBar(null); syncForm(null); return; }
       const v = currentView();
       lastView = v;
       if (!v) {
@@ -1438,6 +1617,7 @@
       syncMini(v);
       syncPops(v, performance.now());
       syncBar(v);
+      syncForm(v);
       updateOverlay(latest && !isHost ? latest : v);
     }
     renderMenu();
@@ -1468,23 +1648,23 @@
           onSnapshot(d);
         } else if (d.k === 'setup') {
           if (stage === 'play') return;
-          stage = d.st === 'sizes' ? 'sizes' : d.st === 'maps' ? 'maps' : 'teams'; modeId = d.mode || modeId; mapId = d.map || 'classic';
+          stage = d.st === 'sizes' ? 'sizes' : d.st === 'maps' ? 'maps' : d.st === 'positions' ? 'positions' : 'teams'; modeId = d.mode || modeId; mapId = d.map || 'classic';
           sizeId = d.size || ''; if (sizeId) setGeo(sizeId);
           T.names = d.names.slice(); T.mascots = d.mascots.slice(); T.forms = d.forms.slice(); T.ready = d.ready.slice();
           setModeLabel(); renderStage();
         } else if (d.k === 'begin') {
-          plans = {}; lastRound = -1;
+          plans = {}; lastRound = -1; resetRec();
           toPlay(d);
         } else if (d.k === 'menu') {
           stage = 'menu'; modeId = null; sizeId = ''; mapId = 'classic'; drag = null; plans = {};
-          snaps.length = 0; base = null; ivl = 50; lastTk = -1; latest = null;
+          snaps.length = 0; base = null; ivl = 50; lastTk = -1; latest = null; resetRec();
           over.classList.add('hidden'); shownOver = false;
           setModeLabel(); renderMenu();
         }
       },
       onRoom(r) {
         if (sim) for (const id of sim.members[0].concat(sim.members[1])) if (!r.slots.some((s) => s.id === id)) Sim.removePlayer(sim, id);
-        if (stage === 'teams') renderSetup(false);                 // a captain may have left
+        if (stage === 'teams' || stage === 'positions') renderSetup(false);                 // a captain may have left
       },
       destroy() {
         cancelAnimationFrame(raf);
