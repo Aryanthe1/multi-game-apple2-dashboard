@@ -229,7 +229,7 @@
       c.classList.add('open');
 
       const log = c.querySelector('#clLog'), input = c.querySelector('#clChat');
-      let busy = true;
+      let busy = true, first = true, asking = false;       // D answers your first message (whatever it is) with an offer; yes sends you away
       const addLine = (who, text, done) => {
         const line = document.createElement('div');
         line.className = `cl-line ${who}`;
@@ -253,7 +253,16 @@
         if (!text || busy) return;
         input.value = ''; busy = true; input.disabled = true;
         addLine('you', text);
-        if (isStupid(text)) addLine('d', 'oh i see', () => setTimeout(() => closeCrack(true), 1200));
+        if (first) {                                          // hi, or anything else, to start with
+          first = false; asking = true;
+          addLine('d', 'would you like to view the accessible files? (yes / no)', ready);
+        } else if (asking) {
+          if (/^(y|ye|yes|yeah|yep|yup|yea|sure|ok|okay|please|of course)\b/i.test(text)) {
+            asking = false;
+            addLine('d', 'lmao you thought that would work', () => setTimeout(() => close(leave), 1600));      // on to the cube rotator
+          } else if (/^(n|no|nope|nah)\b/i.test(text)) { asking = false; addLine('d', 'ok. ask me something.', ready); }
+          else addLine('d', 'yes or no.', ready);
+        } else if (isStupid(text)) addLine('d', 'oh i see', () => setTimeout(() => closeCrack(true), 1200));
         else addLine('d', answerFor(text), ready);
       };
       input.addEventListener('keydown', (e) => {

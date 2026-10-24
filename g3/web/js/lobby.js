@@ -66,21 +66,19 @@
 
   // ---------------------------------------------------------------- the main panel
   function readoutHTML(r, g) {
+    // how many friends can join (1 to 7): the room holds that many plus you, so the room size sent to the server is friends + 1
     const gmax = r ? r.gmax : g.max;
-    const opts = [2, 4, 8, 16].filter((v) => v <= gmax);
     const cur = r ? r.max : ui.max;
-    if (!opts.includes(cur)) opts.push(cur);
-    opts.sort((a, b) => a - b);
     const host = isHost();
-    const chips = opts.map((v) => {
-      const lab = v === 16 ? '16 MAX' : `${v} PLAYERS${v === cur ? ' - ACTIVE' : ''}`;
-      return host ? chip(`[ ${lab} ]`, v === cur, `data-act="max" data-v="${v}"`) : chip(`[ ${lab} ]`, v === cur, 'disabled');
+    const chips = [1, 2, 3, 4, 5, 6, 7].filter((n) => n + 1 <= gmax).map((n) => {
+      const lab = `${n}`;
+      return host ? chip(`[ ${lab} ]`, n + 1 === cur, `data-act="max" data-v="${n + 1}"`) : chip(`[ ${lab} ]`, n + 1 === cur, 'disabled');
     }).join(' ');
     const s = G3.summary();
     const where = r ? (r.code ? `#${r.code}` : `${G3.state.ips[0] || '?'}:${G3.state.settings.lan_port}`) : '---';
     return `<div class="border border-[#156628] bg-[#071208] p-2.5 text-[11px] md:text-xs leading-relaxed space-y-1">
       <div class="flex flex-wrap items-center justify-between"><span class="text-[#33FF66] font-bold">GAME: ${esc(g.name.split('/')[0].trim())}</span><span class="text-[#22aa44]">GENRE: ${esc(g.genre)}</span></div>
-      <div class="text-[#22aa44] flex flex-wrap items-center gap-1.5 pt-1"><span>MODE:</span>${chips}</div>
+      <div class="text-[#22aa44] flex flex-wrap items-center gap-1.5 pt-1"><span>FRIENDS WHO CAN JOIN:</span>${chips}</div>
       <div class="flex flex-wrap items-center justify-between text-[10px] md:text-[11px] text-[#22aa44] pt-1 border-t border-[#156628]/60">
         <span>PING: <span class="text-[#33FF66]">${esc(s.ping)}</span> // LINK: <span class="text-[#33FF66]">${esc(r ? s.link : 'NONE')}</span></span>
         <span>CHANNEL: <span class="text-[#00eefc] selectable">${esc(where)}</span></span>
@@ -127,22 +125,17 @@
 
   function joinInfo(r) {
     const st = G3.state.settings;
-    if (r.transport === 'lan') {
-      const all = G3.state.ips.map((ip) => `${ip}:${st.lan_port}`);
-      return ['SAME WI-FI/NETWORK ONLY', all[0] || '?', 'Friends run G3 > WI-FI/LAN > JOIN > SEARCH LAN, or type this address.' + (all.length > 1 ? ` If it fails, try: ${all.slice(1).join('  ')}` : '')];
-    }
-    if (r.transport === 'online') return ['ROOM CODE (WORKS FROM ANYWHERE)', r.code, 'Friends run G3 > ROOM CODE > JOIN A ROOM, type this code, press JOIN ROOM.'];
-    if (r.transport === 'relay') return ['RELAY ROOM', `${r.code}  @  ${st.relay}`, 'Friends run G3 > RELAY > JOIN A ROOM with this address and room code.'];
-    return ['RADIO ROOM', r.code, 'Your friend picks LORA RADIO > JOIN A ROOM with the same room code.'];
+    if (r.transport === 'lan') return ['ROOM CODE', (G3.state.ips[0] || '?') + ':' + st.lan_port];      // only reachable from older settings: the lobby no longer offers it
+    if (r.transport === 'relay') return ['ROOM CODE', `${r.code}  @  ${st.relay}`];
+    return ['ROOM CODE', r.code];
   }
 
   function lobbyHTML(r, g) {
     const me = G3.me(), [ok, why] = canStart(r, g);
-    const [invLabel, invValue, invHow] = joinInfo(r);
+    const [invLabel, invValue] = joinInfo(r);
     const invite = r.host && !r.solo && r.slots.length < r.max ? `<div class="border border-[#FFB000] bg-[#071208] p-2.5 flex flex-col md:flex-row md:items-center justify-between gap-2">
-        <div class="min-w-0"><div class="text-[10px] text-[#FFB000] font-bold">&gt; INVITE FRIENDS // ${invLabel}</div>
-          <div class="text-base md:text-lg text-[#00eefc] font-bold break-all selectable">${esc(invValue)}</div>
-          <div class="text-[11px] text-[#22aa44]">${esc(invHow)}</div></div>
+        <div class="min-w-0"><div class="text-[10px] text-[#FFB000] font-bold">&gt; ${invLabel}</div>
+          <div class="text-xl md:text-3xl tracking-widest text-[#00eefc] font-bold break-all selectable">${esc(invValue)}</div></div>
         ${small('data-act="invite"', '[ COPY INVITE ]', '#FFB000')}</div>` : '';
     const host = r.host;
     const primary = host
@@ -223,39 +216,15 @@
           <div class="text-[11px] text-[#22aa44]">${esc(st.msg || 'working...')}</div>
           ${small('data-act="cancel"', '[ ■ CANCEL ]', '#FF3366')}</div>`;
     }
-    const MODES = [['online', 'ROOM CODE: ANYWHERE'], ['lan', 'WI-FI/LAN: SAME NETWORK'], ['relay', 'RELAY: YOUR SERVER'], ['lora', 'LORA RADIO']];
-    const modeChips = MODES.map(([k, label]) => chip(`[ ${label} ]`, ui.mode === k, `data-act="mode" data-v="${k}"`)).join(' ');
+    // the only way into a room is its room code: one big box to type (or, for the host, generate) it
     const roleChips = [['host', 'HOST A ROOM'], ['join', 'JOIN A ROOM']].map(([k, label]) => chip(`[ ${label} ]`, ui.role === k, `data-act="role" data-v="${k}"`)).join(' ');
-    const field = (label, key, ph, extra = '') => `<label class="block text-[10px] text-[#22aa44] space-y-0.5"><span>${label}</span><input class="t-input" data-field="${key}" value="${esc(ui[key])}" placeholder="${esc(ph)}" autocomplete="off" spellcheck="false" ${extra}></label>`;
-    const ports = ui.ports === null ? '<option>(looking for serial ports...)</option>'
-      : ['<option value="">(type a port below)</option>'].concat(ui.ports.map((p) => `<option value="${esc(p[0])}" ${p[0] === ui.device ? 'selected' : ''}>${esc(p[0])} ${esc(p[1] || '')}</option>`)).join('');
-    let fields = '', hint = '';
-    if (ui.mode === 'lan') {
-      const addrs = G3.state.ips.map((ip) => `${ip}:${G3.state.settings.lan_port}`).join('  ');
-      if (host) hint = `Only for people on the same Wi-Fi/network. They run G3, pick WI-FI/LAN > JOIN > SEARCH LAN (or type one of: <span class="text-[#00eefc] selectable">${esc(addrs)}</span>). If Windows asks about the firewall, allow Python on private networks.`;
-      else {
-        const rows = st.state === 'results' ? (st.hosts.length ? st.hosts.map((h) => `<div class="flex items-center justify-between border border-[#156628] hover:border-[#33FF66] px-2 py-1"><span class="text-[#33FF66]">@${esc(h.name)} <span class="text-[#22aa44]">${esc(h.ip)} ${h.players != null ? `${h.players}/${h.max}` : ''}</span></span>${small(`data-act="joinhost" data-ip="${esc(h.ip)}"`, '[ JOIN ]')}</div>`).join('')
-          : '<div class="text-[#FFB000]">&gt; NO ROOMS FOUND ON THIS NETWORK</div>') : '';
-        fields = `<div class="flex gap-2 items-end"><div class="flex-1">${field('HOST ADDRESS (ip or ip:port)', 'ip', '192.168.1.20')}</div>${small('data-act="search"', '[ SEARCH LAN ]', '#00eefc')}</div><div class="space-y-1 text-[11px]">${rows}</div>`;
-      }
-    } else if (ui.mode === 'online') {
-      fields = `<div class="flex gap-2 items-end"><div class="flex-1">${field('ROOM CODE', 'code', 'EMBER-TIDE-FERN-042')}</div>${host ? small('data-act="newcode"', '[ NEW CODE ]', '#00eefc') : ''}</div>`;
-      hint = host ? 'Press OPEN ROOM, then INVITE FRIENDS to copy the code and send it. Each friend runs G3 on their own computer, picks ROOM CODE > JOIN and types it. Works over the internet; no router setup. Everything is encrypted with a key made from the code, so keep the generated one. Some school/office networks block the public servers.'
-        : 'Type the code your friend sent. They must have opened their room first.';
-    } else if (ui.mode === 'relay') {
-      fields = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${field('RELAY ADDRESS', 'addr', 'myrelay.example.com:47900')}${field('ROOM CODE', 'rroom', 'MY-ROOM-1')}</div>`;
-      hint = 'Run <span class="text-[#00eefc]">python -m game.relay</span> on a machine everyone can reach. It only forwards bytes; any number of players can share a room.';
-    } else {
-      fields = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2"><label class="block text-[10px] text-[#22aa44] space-y-0.5"><span>SERIAL PORT</span><select class="t-input" data-field="device">${ports}</select></label>${field('ROOM CODE', 'lroom', 'FORGE')}</div>${field('OR TYPE A PORT', 'device', 'COM5 or /dev/ttyUSB0')}`;
-      hint = 'LoRa rooms hold exactly two players (host + one radio). Set the module to your country\'s licence-free band first (India: 865-867 MHz).' + (G3.state.init && !G3.state.init.serial ? ' <span class="text-[#FFB000]">pyserial is not installed: pip install pyserial</span>' : '');
-    }
+    const codeBox = `<input class="t-input w-full text-center text-xl md:text-3xl tracking-widest py-4 md:py-5" data-field="code" value="${esc(ui.code)}" placeholder="ROOM CODE" aria-label="Room code" autocomplete="off" spellcheck="false">`;
+    const fields = host ? `<div class="flex gap-2 items-stretch"><div class="flex-1">${codeBox}</div>${small('data-act="newcode"', '[ NEW CODE ]', '#00eefc')}</div>` : codeBox;
     return `${readoutHTML(null, g)}
       <div class="space-y-2">
-        <div class="text-[10px] text-[#22aa44] flex flex-wrap items-center gap-1.5"><span>LINK_MODE:</span>${modeChips}</div>
         <div class="text-[10px] text-[#22aa44] flex flex-wrap items-center gap-1.5"><span>ROLE:</span>${roleChips}</div>
         ${st.state === 'error' ? `<div class="border border-[#FF3366] text-[#FF3366] bg-[#071208] p-2 text-[11px]">&gt; ERROR: ${esc(st.msg)}</div>` : ''}
         ${fields}
-        ${hint ? `<div class="text-[10px] text-[#22aa44] leading-snug">&gt; ${hint}</div>` : ''}
       </div>
       <div class="pt-1 space-y-2.5">
         ${bigBtn('data-act="go"', host ? '[ OPEN ROOM ]' : '[ JOIN ROOM ]', host ? '> YOU HOST; FRIENDS CONNECT TO YOU' : '> CONNECT TO A FRIEND\'S ROOM')}
@@ -382,13 +351,9 @@
   }
 
   function inviteText() {
-    const r = roomOf(), s = G3.state.settings, g = gameNow();
+    const r = roomOf(), g = gameNow();
     if (!r) return '';
-    const head = `Join my G3 room (${g ? g.exe : ''}). You need G3 running on your own computer: `;
-    if (r.transport === 'lan') return `${head}open G3, pick Wi-Fi/LAN > JOIN, and use ${G3.state.ips[0] || '?'}:${s.lan_port}`;
-    if (r.transport === 'online') return `${head}open G3, pick ROOM_CODE > JOIN, and type ${r.code}`;
-    if (r.transport === 'relay') return `${head}open G3, pick RELAY > JOIN, relay ${s.relay}, room ${r.code}`;
-    return `${head}radio room ${r.code}`;
+    return `Join my G3 room (${g ? g.exe : ''}): room code ${r.code}`;
   }
   async function copyInvite() {
     const text = inviteText();
@@ -409,7 +374,7 @@
     const a = el.dataset.act, v = el.dataset.v;
     switch (a) {
       case 'mode': ui.mode = v; if (v === 'lora' && ui.ports === null) G3.send('ports'); renderPanel(); break;
-      case 'role': ui.role = v; renderPanel(); break;
+      case 'role': ui.role = v; ui.code = v === 'join' ? '' : (ui.code || G3.newRoomCode()); renderPanel(); break;                // joining starts with an empty box; hosting always has a code
       case 'max':
         ui.max = +v;
         if (roomOf()) G3.send('set_max', { n: +v }); else { G3.send('set_max', { n: +v }); renderPanel(); }
