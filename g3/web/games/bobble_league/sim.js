@@ -6,9 +6,13 @@
  *   world: the pitch is x 0..W, y 0..H seen from above, y grows downward.  The goals are nets behind the end
  *          lines: x -NET..0 on the left and W..W+NET on the right, open for y GY0..GY1 (the ball only; the
  *          bobbles can't enter).  Team 0 (cyan) defends the LEFT goal and attacks right; team 1 (magenta) the other way.
- *   teams: every team is always 6 bobbles (discs 0..5 are team 0, 6..11 team 1) and there is one ball.  The bobbles of
- *          a team are shared out evenly between its players: 1 v 1 gives 6 each, 2 v 2 gives 3 each, 4 v 4 gives 2,2,1,1.
- *          With a single player in the room (solo test) that player commands all twelve.
+ *   sizes: the stadium decides the match.  LOCAL is 3 v 3 on a small pitch, LITTLE LEAGUE 4 v 4 on a much bigger one and
+ *          PREMIER LEAGUE 5 v 5 on the biggest (SIZES below; setSize() picks one).  'standard' is the original 6 v 6 pitch, kept
+ *          as the default for tests; the menu never offers it.  The pitch is S.g (W, H, goal mouth, flick power scale ...).
+ *   teams: every team has S.n bobbles (discs 0..n-1 are team 0, n..2n-1 team 1) and there is one ball.  The bobbles of a
+ *          team are shared out evenly between its players (3 v 3 with two players: 2 and 1).  Each team picks a formation
+ *          (FORMS) that says where its bobbles stand at kick-off.  With a single player in the room (solo test) that player
+ *          commands everything.
  *   rounds: both teams plan at the same time.  During the PLAN phase every player sets a flick (direction and power) for
  *          each of their own bobbles, as many as they like, and locks in.  When everybody has locked in (or the planning
  *          time is up) all the flicks happen at once; the bobbles slide, collide and rebound until everything has
@@ -16,6 +20,8 @@
  *   rules: goal = the ball fully over the goal line between the posts; then the pitch is reset.  First to GOAL_LIMIT
  *          wins; when the match clock (which runs during planning and movement) runs out the leader wins, and a tie
  *          goes to sudden death (next goal wins).
+ *   events: the arena events stay off for the first minute of the match clock (FX_START); after that the first one is
+ *          certain (S.fxSeen) and lightning runs on a timer (BOLT_FIRST, BOLT_EVERY).
  *   maps:  setMap() picks the arena.  'classic' is the plain pitch.  The four arenas change the physics (sand drags, ice
  *          and rain make the pitch slippery) and each has a random event of its own, rolled from a seeded generator so the
  *          same seed plays out the same way:
@@ -53,24 +59,68 @@
     GOAL_LIMIT: 3,
     COUNT: 3, GOAL_PAUSE: 2.6,
     STEP: 1 / 60, SUB: 3,
-    TEAM: 6,                      // bobbles per team, always
+    TEAM: 6,                      // bobbles per team on the 'standard' pitch (the sizes in SIZES have their own)
     MASCOTS: 12,                  // how many mascots the client offers (the sim only stores the index)
     NAME_MAX: 12,
     // ---- arena events
-    WARMUP: 1,                    // no random events during the first round
+    FX_START: 60,                 // seconds of match clock played before any arena event can start (a quiet first minute)
     COOLDOWN: 1,                  // rounds without a minigame after one
-    HECKLE_P: 0.4, HECKLE_T: 12,  // stadium: chance per round, seconds before a stuck player is let go anyway
-    STORM_P: 0.3, STORM_T: 10,    // desert / tundra: chance per round, seconds for the race
+    HECKLE_P: 0.75, HECKLE_T: 12, // stadium: chance per round, seconds before a stuck player is let go anyway
+    STORM_P: 0.6, STORM_T: 10,    // desert / tundra: chance per round, seconds for the race
     MINI_MIN_MS: 1200,            // a minigame can't be won faster than this (a client claiming less is rounded up)
     MINI_GRACE: 0.7,              // after the first finisher, others still count for this long (the quickest time wins)
-    BALES_P: 0.5, BALE_R: 34, BALE_M: 2.6, BALE_V: [380, 540], BALE_MIN_V: 260,
-    BOLT_EVERY: 20,               // rainforest: average seconds of play between lightning strikes
+    BALES_P: 0.85, BALE_R: 34, BALE_M: 2.6, BALE_V: [380, 540], BALE_MIN_V: 260,
+    BOLT_FIRST: 4,                // rainforest: seconds of play until the first strike
+    BOLT_EVERY: 9,                // ...and then about this many seconds between strikes (70% to 130% of it)
     BOLT_WARN: 1, STUN: 10, STUN_R: 110, STUN_MAX: 3,
     FROST_AFTER: 2,               // tundra: frostbite starts after this many rounds without moving
     FROST_POW: [1, 0.65, 0.35, 0], FROST_DRAG: [1, 1.5, 2.2, 3.2],
     MOVED_V: 120,                 // a bobble that got faster than this (flicked or knocked) counts as having moved
   };
   const DEFAULT_NAMES = ['CYAN', 'MAGENTA'];
+
+  // The stadiums.  n bobbles a team, the pitch in px, the goal mouth (its height), pv: how much harder a full-power flick is (so
+  // the ball can still cross a big pitch), u: how much bigger the bobbles, ball, hay bales and lightning are drawn and simulated (so they
+  // stay easy to see on a big pitch), seconds: the match clock, goalLimit: goals to win, extraBales: more hay on a big pitch.
+  const SIZES = {
+    standard: { name: 'STANDARD', n: C.TEAM, W: C.W, H: C.H, mouth: C.GY1 - C.GY0, pv: 1, u: 1, seconds: C.MATCH, goalLimit: C.GOAL_LIMIT, extraBales: 0 },
+    local: { name: 'LOCAL', n: 3, W: 760, H: 480, mouth: 170, pv: 0.85, u: 1, seconds: 240, goalLimit: 3, extraBales: 0 },
+    little: { name: 'LITTLE LEAGUE', n: 4, W: 1240, H: 760, mouth: 250, pv: 1.2, u: 1.2, seconds: 300, goalLimit: 3, extraBales: 0 },
+    premier: { name: 'PREMIER LEAGUE', n: 5, W: 1700, H: 1040, mouth: 330, pv: 1.5, u: 1.4, seconds: 360, goalLimit: 3, extraBales: 1 },
+  };
+  const SIZE_IDS = ['local', 'little', 'premier'];                        // what the menu offers
+
+  /** The geometry of a stadium (an unknown id gives the standard pitch). */
+  function geo(id) {
+    const z = SIZES[id] || SIZES.standard, GY0 = Math.round((z.H - z.mouth) / 2), NET = Math.round(C.NET * z.mouth / (C.GY1 - C.GY0));
+    return {
+      id: SIZES[id] ? id : 'standard', name: z.name, n: z.n, W: z.W, H: z.H, NET, GY0, GY1: GY0 + z.mouth, pv: z.pv, u: z.u,
+      dr: C.DR * z.u, br: C.BR * z.u, bale: C.BALE_R * z.u, stunR: C.STUN_R * z.u,
+      seconds: z.seconds, goalLimit: z.goalLimit, extraBales: z.extraBales,
+      posts: [[0, GY0], [0, GY0 + z.mouth], [z.W, GY0], [z.W, GY0 + z.mouth]],
+    };
+  }
+
+  // Formations: where a team's bobbles stand at kick-off, as fractions of the pitch (team 0's half; team 1 is the mirror image).
+  // `counts` is the number of bobbles in each line from the goal outwards, `front` how far up the pitch the last line stands.
+  function lineForm(counts, front) {
+    const pts = [], L = counts.length;
+    counts.forEach((c, l) => {
+      const fx = L === 1 ? 0.07 : 0.07 + (front - 0.07) * l / (L - 1), gap = c > 1 ? Math.min(0.28, 0.76 / (c - 1)) : 0;
+      for (let j = 0; j < c; j++) pts.push([+fx.toFixed(3), +(0.5 + (j - (c - 1) / 2) * gap).toFixed(3)]);
+    });
+    return pts;
+  }
+  const form = (id, name, counts, front) => ({ id, name, shape: counts.join('-'), pts: lineForm(counts, front) });
+  const FORMS = {
+    3: [form('balanced', 'BALANCED', [1, 2], 0.34), form('attack', 'ATTACKING', [1, 2], 0.42), form('defend', 'DEFENSIVE', [2, 1], 0.28), form('column', 'COLUMN', [1, 1, 1], 0.4)],
+    4: [form('diamond', 'DIAMOND', [1, 2, 1], 0.4), form('box', 'BOX', [2, 2], 0.34), form('attack', 'ATTACKING', [1, 3], 0.42), form('defend', 'DEFENSIVE', [3, 1], 0.28)],
+    5: [form('balanced', 'BALANCED', [2, 2, 1], 0.4), form('attack', 'ATTACKING', [1, 2, 2], 0.42), form('defend', 'DEFENSIVE', [3, 2], 0.3), form('midfield', 'MIDFIELD', [1, 3, 1], 0.4)],
+    // the standard pitch's original kick-off spots (px on 1000 x 620)
+    6: [{ id: 'classic', name: 'CLASSIC', shape: '1-2-3', pts: [[70, 310], [200, 185], [200, 435], [335, 105], [320, 310], [335, 515]].map(([x, y]) => [x / 1000, y / 620]) }],
+  };
+  /** The formations a team of n bobbles can choose from (the first is the default). */
+  const formsFor = (n) => FORMS[n] || FORMS[6];
 
   // physics that differ from the base values in C, and whether the arena has its random events
   const MAPS = {
@@ -88,35 +138,52 @@
     let a = seed >>> 0;
     return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   }
-  const POSTS = [[0, C.GY0], [0, C.GY1], [C.W, C.GY0], [C.W, C.GY1]];
-
-  // kickoff spots for team 0 (the left side); team 1 is the mirror image
-  const FORMATION = [[70, C.H / 2], [200, C.H / 2 - 125], [200, C.H / 2 + 125], [335, C.H / 2 - 205], [320, C.H / 2], [335, C.H / 2 + 205]];
-
   function body(r, m) { return { x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, r, m }; }
 
-  /** opts: { players: [{id, side}], seconds, goalLimit, map, seed, rate } */
+  /** opts: { players: [{id, side}], size, seconds, goalLimit, map, seed, rate } */
   function create(opts) {
     opts = opts || {};
-    const N = C.TEAM * 2;
     const S = {
       ball: body(C.BR, C.M_BALL), discs: [], ev: [], tick: 0,
-      phase: 'countdown', t: C.COUNT, clock: opts.seconds || C.MATCH, seconds: opts.seconds || C.MATCH,
-      goalLimit: opts.goalLimit || C.GOAL_LIMIT, ot: false, score: [0, 0], lastGoal: -1, winner: -1,
+      phase: 'countdown', t: C.COUNT, clock: 0, seconds: 0, goalLimit: 0, ot: false, score: [0, 0], lastGoal: -1, winner: -1,
       round: 0, rest: 0, shots: 0,
-      members: [[], []], owner: new Array(N).fill(-1), plans: new Array(N).fill(null), ready: {},
+      members: [[], []], ready: {},
       teams: [{ name: DEFAULT_NAMES[0], mascot: 0 }, { name: DEFAULT_NAMES[1], mascot: 1 }],
       // arena state (setMap fills it in)
       map: 'classic', phys: null, events: false, rate: 1, rng: null,
-      stun: new Array(N).fill(0), hold: new Array(N).fill(0), pelt: new Array(N).fill(0), frost: new Array(N).fill(0), idle: new Array(N).fill(0), moved: new Array(N).fill(0),
-      mini: null, bales: [], omen: null, bolt: null, frozen: -1, cool: 0,
+      mini: null, bales: [], omen: null, bolt: null, boltIn: 0, frozen: -1, cool: 0,
     };
-    for (let i = 0; i < N; i++) { const d = body(C.DR, C.M_DISC); d.i = i; d.side = i < C.TEAM ? 0 : 1; S.discs.push(d); }
     for (const p of opts.players || []) S.members[p.side ? 1 : 0].push(p.id);
-    assign(S);
+    setSize(S, opts.size, opts);
     setMap(S, opts.map, opts.seed, opts);
     placeKickoff(S);
     return S;
+  }
+
+  /** Choose the stadium (call before restart()): the pitch, how many bobbles a team has and the match length.  Formations go
+   *  back to each size's default.  opts.seconds / opts.goalLimit override the size's own (tests do). */
+  function setSize(S, id, opts) {
+    const g = S.g = geo(id), n = S.n = g.n, N = 2 * n;
+    S.size = g.id;
+    S.ball.r = g.br;
+    S.seconds = S.clock = (opts && opts.seconds) || g.seconds;
+    S.goalLimit = (opts && opts.goalLimit) || g.goalLimit;
+    S.form = [formsFor(n)[0].id, formsFor(n)[0].id];
+    S.discs = [];
+    for (let i = 0; i < N; i++) { const d = body(g.dr, C.M_DISC); d.i = i; d.side = i < n ? 0 : 1; S.discs.push(d); }
+    S.owner = new Array(N).fill(-1); S.plans = new Array(N).fill(null);
+    S.stun = new Array(N).fill(0); S.hold = new Array(N).fill(0); S.pelt = new Array(N).fill(0);
+    S.frost = new Array(N).fill(0); S.idle = new Array(N).fill(0); S.moved = new Array(N).fill(0);
+    S.ready = {};
+    assign(S);
+    placeKickoff(S);
+  }
+
+  /** A team's formation (an id from formsFor(S.n)).  Takes effect at the next kick-off. */
+  function setFormation(S, side, id) {
+    if (!formsFor(S.n).some((f) => f.id === id)) return false;
+    S.form[side ? 1 : 0] = id;
+    return true;
   }
 
   /** Choose the arena (call before restart()).  opts.rate scales how often its random events happen (0 = never; tests use big
@@ -133,15 +200,17 @@
   /** Forget every event in progress. */
   function resetFx(S) {
     S.stun.fill(0); S.hold.fill(0); S.pelt.fill(0); S.frost.fill(0); S.idle.fill(0); S.moved.fill(0);
-    S.mini = null; S.bales = []; S.omen = null; S.bolt = null; S.frozen = -1; S.cool = 0;
+    S.mini = null; S.bales = []; S.omen = null; S.bolt = null; S.frozen = -1; S.cool = 0; S.fxSeen = false;
+    S.boltIn = S.rng ? C.BOLT_FIRST * (0.8 + 0.4 * S.rng()) : C.BOLT_FIRST;
   }
 
   function placeKickoff(S) {
+    const { W, H } = S.g;
     S.discs.forEach((d) => {
-      const [fx, fy] = FORMATION[d.i % C.TEAM];
-      d.x = d.side ? C.W - fx : fx; d.y = fy; d.vx = d.vy = 0; d.px = d.x; d.py = d.y;
+      const f = formsFor(S.n).find((q) => q.id === S.form[d.side]) || formsFor(S.n)[0], [fx, fy] = f.pts[d.i % S.n], x = Math.round(fx * W);
+      d.x = d.side ? W - x : x; d.y = Math.round(fy * H); d.vx = d.vy = 0; d.px = d.x; d.py = d.y;
     });
-    const b = S.ball; b.x = C.W / 2; b.y = C.H / 2; b.vx = b.vy = 0; b.px = b.x; b.py = b.y;
+    const b = S.ball; b.x = W / 2; b.y = H / 2; b.vx = b.vy = 0; b.px = b.x; b.py = b.y;
   }
 
   /** Start the match over (same players, teams and team names). */
@@ -167,7 +236,7 @@
   function assign(S) {
     const all = S.members[0].concat(S.members[1]);
     for (const d of S.discs) {
-      const k = d.i % C.TEAM, list = S.members[d.side].length ? S.members[d.side] : all;
+      const k = d.i % S.n, list = S.members[d.side].length ? S.members[d.side] : all;
       S.owner[d.i] = list.length ? list[k % list.length] : -1;
     }
     const m = S.mini;
@@ -226,7 +295,10 @@
   }
 
   // ------------------------------------------------------------------ planning
-  const chance = (S, p) => S.rng() < Math.min(1, p * S.rate);
+  // The first event of a match is certain (when events are on at all), so an arena never starts out quiet.
+  /** The arena events have been allowed since the match clock passed FX_START (the countdown and storm races don't count). */
+  const fxOpen = (S) => S.seconds - S.clock >= C.FX_START;
+  const chance = (S, p) => S.rng() < Math.min(1, (S.fxSeen ? p : 1) * S.rate);
 
   function startPlan(S) {
     S.round++; S.rest = 0; S.plans.fill(null); S.ready = {};
@@ -243,12 +315,12 @@
 
   /** Desert / tundra: sometimes the round opens with a storm and a race instead of planning. */
   function beginStorm(S) {
-    if (!S.events || S.round <= C.WARMUP || S.cool > 0 || (S.map !== 'desert' && S.map !== 'tundra') || !chance(S, C.STORM_P)) return false;
+    if (!S.events || !fxOpen(S) || S.cool > 0 || (S.map !== 'desert' && S.map !== 'tundra') || !chance(S, C.STORM_P)) return false;
     const who = [];
     for (const o of S.owner) if (o >= 0 && !who.includes(o)) who.push(o);
     if (!who.length) return false;
     const kind = S.map === 'desert' ? 'dig' : 'shake';
-    S.phase = 'storm'; S.t = C.STORM_T; S.cool = C.COOLDOWN + 1;
+    S.phase = 'storm'; S.t = C.STORM_T; S.cool = C.COOLDOWN + 1; S.fxSeen = true;
     S.mini = { kind, race: true, who, reports: {}, order: [], grace: -1 };
     S.ev.push(['storm', kind]);
     return true;
@@ -267,25 +339,26 @@
 
   /** The random events that start with a round of planning. */
   function rollEvents(S) {
-    if (!S.events || S.round <= C.WARMUP) return;
+    if (!S.events || !fxOpen(S)) return;
     if (S.map === 'stadium' && !S.mini && S.cool === 0 && chance(S, C.HECKLE_P)) {
-      const side = S.rng() < 0.5 ? 0 : 1, pick = S.discs[side * C.TEAM + Math.floor(S.rng() * C.TEAM)], pid = S.owner[pick.i];
+      const side = S.rng() < 0.5 ? 0 : 1, pick = S.discs[side * S.n + Math.floor(S.rng() * S.n)], pid = S.owner[pick.i];
       const what = HECKLES[Math.floor(S.rng() * HECKLES.length)], from = +S.rng().toFixed(2);
       if (pid >= 0) {
         S.mini = { kind: 'scrub', race: false, pid, who: [pid], side, t: C.HECKLE_T, what, from };
         for (const d of S.discs) if (d.side === side && S.owner[d.i] === pid) { S.pelt[d.i] = 1; S.plans[d.i] = null; }
         assign(S);                                                        // a teammate takes their bobbles over...
         for (const d of S.discs) if (S.pelt[d.i]) { if (S.owner[d.i] === pid) S.hold[d.i] = 1; else delete S.ready[S.owner[d.i]]; }     // ...or, with nobody to carry them, they are stuck
-        S.cool = C.COOLDOWN + 1;
+        S.cool = C.COOLDOWN + 1; S.fxSeen = true;
         S.ev.push(['heckle', pid, side, what, from]);
       }
     } else if (S.map === 'desert' && chance(S, C.BALES_P)) {
-      const n = 1 + (S.rng() < 0.45 ? 1 : 0) + (S.rng() < 0.15 ? 1 : 0);
+      const { W, pv } = S.g, n = 1 + (S.rng() < 0.45 ? 1 : 0) + (S.rng() < 0.15 ? 1 : 0) + S.g.extraBales;
       S.omen = [];
       for (let k = 0; k < n; k++) {
-        S.omen.push({ x: Math.round(140 + S.rng() * 720), from: S.rng() < 0.5 ? 0 : 1, vx: Math.round((S.rng() - 0.5) * 360),
-                      v: Math.round(C.BALE_V[0] + S.rng() * (C.BALE_V[1] - C.BALE_V[0])), d: +(S.rng() * 1.2).toFixed(2) });
+        S.omen.push({ x: Math.round(W * 0.14 + S.rng() * W * 0.72), from: S.rng() < 0.5 ? 0 : 1, vx: Math.round((S.rng() - 0.5) * 360 * pv),
+                      v: Math.round((C.BALE_V[0] + S.rng() * (C.BALE_V[1] - C.BALE_V[0])) * pv), d: +(S.rng() * 1.2).toFixed(2) });
       }
+      S.fxSeen = true;
       S.ev.push(['omen', n]);
     }
   }
@@ -344,7 +417,7 @@
     for (const d of S.discs) {
       const p = S.plans[d.i];
       if (p && blockReason(S, d.i) === 0) {
-        const f = C.FROST_POW[S.frost[d.i]] * C.MAXV;                    // frostbite weakens the flick
+        const f = C.FROST_POW[S.frost[d.i]] * C.MAXV * S.g.pv;           // frostbite weakens the flick; a big pitch needs harder flicks
         d.vx = p.ax * f; d.vy = p.ay * f; S.moved[d.i] = 1; n++;
       }
     }
@@ -359,9 +432,9 @@
   function launchBales(S) {
     if (!S.omen) return;
     for (const o of S.omen) {
-      const b = body(C.BALE_R, C.BALE_M);
+      const b = body(S.g.bale, C.BALE_M);
       b.bale = 1; b.wait = o.d; b.age = 0; b.entered = false;
-      b.x = o.x; b.y = o.from ? C.H + C.BALE_R + 6 : -C.BALE_R - 6; b.vx = o.vx; b.vy = o.from ? -o.v : o.v;
+      b.x = o.x; b.y = o.from ? S.g.H + b.r + 6 : -b.r - 6; b.vx = o.vx; b.vy = o.from ? -o.v : o.v;
       b.px = b.x; b.py = b.y;
       S.bales.push(b);
     }
@@ -397,21 +470,21 @@
   }
 
   function walls(b, isBall, S) {
-    const r = b.r, e = S.phys.E_WALL;
+    const r = b.r, e = S.phys.E_WALL, { W, H, GY0, GY1, NET } = S.g;
     if (b.y < r) { b.y = r; if (b.vy < 0) { b.vy = -b.vy * e; S.wall = Math.max(S.wall, Math.min(1, -b.vy / 900)); } }
-    if (b.y > C.H - r) { b.y = C.H - r; if (b.vy > 0) { b.vy = -b.vy * e; S.wall = Math.max(S.wall, Math.min(1, b.vy / 900)); } }
-    const inMouth = isBall && b.y > C.GY0 && b.y < C.GY1;
+    if (b.y > H - r) { b.y = H - r; if (b.vy > 0) { b.vy = -b.vy * e; S.wall = Math.max(S.wall, Math.min(1, b.vy / 900)); } }
+    const inMouth = isBall && b.y > GY0 && b.y < GY1;
     if (!isBall || !inMouth) {                                              // the end walls (the ball may pass through the mouth)
       if (b.x < r && !(isBall && b.x < 0)) { b.x = r; if (b.vx < 0) { b.vx = -b.vx * e; S.wall = Math.max(S.wall, Math.min(1, -b.vx / 900)); } }
-      if (b.x > C.W - r && !(isBall && b.x > C.W)) { b.x = C.W - r; if (b.vx > 0) { b.vx = -b.vx * e; S.wall = Math.max(S.wall, Math.min(1, b.vx / 900)); } }
+      if (b.x > W - r && !(isBall && b.x > W)) { b.x = W - r; if (b.vx > 0) { b.vx = -b.vx * e; S.wall = Math.max(S.wall, Math.min(1, b.vx / 900)); } }
     }
     if (isBall) {                                                           // inside a net: walls all round
-      if (b.x < 0 || b.x > C.W) {
-        b.y = clamp(b.y, C.GY0 + r, C.GY1 - r);
-        if (b.y <= C.GY0 + r || b.y >= C.GY1 - r) b.vy *= -0.4;
+      if (b.x < 0 || b.x > W) {
+        b.y = clamp(b.y, GY0 + r, GY1 - r);
+        if (b.y <= GY0 + r || b.y >= GY1 - r) b.vy *= -0.4;
       }
-      if (b.x < -C.NET + r) { b.x = -C.NET + r; if (b.vx < 0) b.vx *= -0.3; }
-      if (b.x > C.W + C.NET - r) { b.x = C.W + C.NET - r; if (b.vx > 0) b.vx *= -0.3; }
+      if (b.x < -NET + r) { b.x = -NET + r; if (b.vx < 0) b.vx *= -0.3; }
+      if (b.x > W + NET - r) { b.x = W + NET - r; if (b.vx > 0) b.vx *= -0.3; }
     }
   }
 
@@ -429,7 +502,7 @@
   function baleWalls(b, S) {
     const e = S.phys.E_WALL;
     if (b.x < b.r) { b.x = b.r; if (b.vx < 0) b.vx = -b.vx * e; }
-    if (b.x > C.W - b.r) { b.x = C.W - b.r; if (b.vx > 0) b.vx = -b.vx * e; }
+    if (b.x > S.g.W - b.r) { b.x = S.g.W - b.r; if (b.vx > 0) b.vx = -b.vx * e; }
   }
 
   /** One physics sub-step.  Returns true if anything is still moving. */
@@ -443,10 +516,10 @@
     for (const b of all) {
       if (b.bale) { baleWalls(b, S); continue; }
       const isBall = b === S.ball;
-      for (const [px, py] of POSTS) hitPost(b, px, py, S);
+      for (const [px, py] of S.g.posts) hitPost(b, px, py, S);
       walls(b, isBall, S);
       if (!isBall && Math.hypot(b.vx, b.vy) > C.MOVED_V) S.moved[b.i] = 1;
-      const mv = isBall ? slide(b, p.K_BALL, p.D_BALL, h, C.CAP_BALL) : slide(b, p.K_DISC * C.FROST_DRAG[S.frost[b.i]], p.D_DISC, h, C.CAP_DISC);
+      const mv = isBall ? slide(b, p.K_BALL, p.D_BALL, h, C.CAP_BALL * S.g.pv) : slide(b, p.K_DISC * C.FROST_DRAG[S.frost[b.i]], p.D_DISC, h, C.CAP_DISC * S.g.pv);
       if (mv) moving = true;
     }
     return moving;
@@ -457,7 +530,7 @@
     const b = S.bolt;
     S.bolt = null;
     const near = S.discs.map((d) => [Math.hypot(d.x - b.x, d.y - b.y), d.i]).sort((a, c) => a[0] - c[0] || a[1] - c[1]);
-    const hit = near.filter((q, k) => k === 0 || q[0] <= C.STUN_R).slice(0, C.STUN_MAX).map((q) => q[1]);     // the closest ones
+    const hit = near.filter((q, k) => k === 0 || q[0] <= S.g.stunR).slice(0, C.STUN_MAX).map((q) => q[1]);     // the closest ones
     for (const i of hit) { S.stun[i] = C.STUN; S.discs[i].vx = S.discs[i].vy = 0; S.plans[i] = null; }
     S.ev.push(['bolt', r1(b.x), r1(b.y), hit]);
     checkLocks(S);
@@ -469,21 +542,25 @@
     if (S.mini && !S.mini.race) { S.mini.t -= dt; if (S.mini.t <= 0) endHeckle(S, false); }      // let them go eventually
     if (!playing) return;
     for (let i = 0; i < S.stun.length; i++) if (S.stun[i] > 0) S.stun[i] = Math.max(0, S.stun[i] - dt);
-    if (S.map === 'rainforest') {
+    if (S.map === 'rainforest') {                                         // a strike on a timer (not a lottery), so it never goes quiet for long
       if (S.bolt) { S.bolt.t -= dt; if (S.bolt.t <= 0) strike(S); }
-      else if (S.round > C.WARMUP && S.rng() < Math.min(1, dt * S.rate / C.BOLT_EVERY)) {
-        const d = S.discs[Math.floor(S.rng() * S.discs.length)];
-        S.bolt = { x: r1(clamp(d.x + (S.rng() - 0.5) * 140, 30, C.W - 30)), y: r1(clamp(d.y + (S.rng() - 0.5) * 140, 30, C.H - 30)), t: C.BOLT_WARN };
-        S.ev.push(['bolt-warn', S.bolt.x, S.bolt.y]);
+      else if (fxOpen(S)) {
+        S.boltIn -= dt * S.rate;
+        if (S.boltIn <= 0) {
+          const d = S.discs[Math.floor(S.rng() * S.discs.length)];
+          S.bolt = { x: r1(clamp(d.x + (S.rng() - 0.5) * 140, 30, S.g.W - 30)), y: r1(clamp(d.y + (S.rng() - 0.5) * 140, 30, S.g.H - 30)), t: C.BOLT_WARN };
+          S.boltIn = C.BOLT_EVERY * (0.7 + 0.6 * S.rng());
+          S.ev.push(['bolt-warn', S.bolt.x, S.bolt.y]);
+        }
       }
     }
     for (let k = S.bales.length - 1; k >= 0; k--) {
       const b = S.bales[k];
       if (b.wait > 0) { b.wait -= dt; if (b.wait <= 0) { b.px = b.x; b.py = b.y; } continue; }
       b.age += dt;
-      if (b.y > -b.r * 0.5 && b.y < C.H + b.r * 0.5) b.entered = true;
-      if (Math.abs(b.vy) < C.BALE_MIN_V) b.vy = (b.vy < 0 ? -1 : 1) * C.BALE_MIN_V;               // it keeps rolling until it leaves
-      if ((b.entered && (b.y < -b.r * 1.5 || b.y > C.H + b.r * 1.5)) || b.age > 12) S.bales.splice(k, 1);
+      if (b.y > -b.r * 0.5 && b.y < S.g.H + b.r * 0.5) b.entered = true;
+      if (Math.abs(b.vy) < C.BALE_MIN_V * S.g.pv) b.vy = (b.vy < 0 ? -1 : 1) * C.BALE_MIN_V * S.g.pv;      // it keeps rolling until it leaves
+      if ((b.entered && (b.y < -b.r * 1.5 || b.y > S.g.H + b.r * 1.5)) || b.age > 12) S.bales.splice(k, 1);
     }
   }
 
@@ -554,9 +631,9 @@
   /** 0 / 1 = the team that just scored, -1 = no goal. */
   function goalAt(S) {
     const b = S.ball;
-    if (b.y <= C.GY0 || b.y >= C.GY1) return -1;
+    if (b.y <= S.g.GY0 || b.y >= S.g.GY1) return -1;
     if (b.x + b.r < 0) return 1;
-    if (b.x - b.r > C.W) return 0;
+    if (b.x - b.r > S.g.W) return 0;
     return -1;
   }
 
@@ -625,7 +702,7 @@
     const d = [];
     for (const q of S.discs) d.push(r1(q.x), r1(q.y));
     const o = {
-      k: 's', tk: S.tick, ph: S.phase, t: +S.t.toFixed(2), c: +S.clock.toFixed(1), ot: S.ot ? 1 : 0,
+      k: 's', sz: S.size, tk: S.tick, ph: S.phase, t: +S.t.toFixed(2), c: +S.clock.toFixed(1), ot: S.ot ? 1 : 0,
       sc: S.score.slice(), w: S.winner, lg: S.lastGoal, rd: S.round, sh: S.shots,
       lk: [locked(S, 0) && S.phase === 'plan' ? 1 : 0, locked(S, 1) && S.phase === 'plan' ? 1 : 0],
       rg: Object.keys(S.ready).map(Number), ow: S.owner.slice(),
@@ -650,17 +727,17 @@
 
   /** The renderer's view of a snapshot message (also what view() produces from the live sim). */
   function parseSnapshot(m) {
-    const discs = [];
-    for (let i = 0; i < m.d.length / 2; i++) discs.push({ i, side: i < C.TEAM ? 0 : 1, x: m.d[2 * i], y: m.d[2 * i + 1] });
-    const z = () => new Array(C.TEAM * 2).fill(0), mn = m.mn;
+    const discs = [], n = m.d.length / 4;
+    for (let i = 0; i < m.d.length / 2; i++) discs.push({ i, side: i < n ? 0 : 1, x: m.d[2 * i], y: m.d[2 * i + 1] });
+    const z = () => new Array(n * 2).fill(0), mn = m.mn;
     return {
-      tk: m.tk, ph: m.ph, t: m.t, clock: m.c, ot: !!m.ot, score: m.sc, winner: m.w, lastGoal: m.lg, round: m.rd, shots: m.sh,
+      size: SIZES[m.sz] ? m.sz : 'standard', n, tk: m.tk, ph: m.ph, t: m.t, clock: m.c, ot: !!m.ot, score: m.sc, winner: m.w, lastGoal: m.lg, round: m.rd, shots: m.sh,
       locked: m.lk, ready: m.rg, owners: m.ow, teams: m.tm.map((q) => ({ name: q[0], mascot: q[1] })),
       ball: { x: m.b[0], y: m.b[1], vx: m.b[2], vy: m.b[3] }, discs, ev: m.ev || [],
       fx: {
         map: m.mp || 'classic', frost: m.fr || z(), idle: m.il || z(), stun: m.sn || z(), pelt: (m.pt || []).reduce((a, i) => { a[i] = 1; return a; }, z()), block: m.bk || z(), frozen: m.fz === undefined ? -1 : m.fz,
         mini: mn ? { k: mn[0], race: !!mn[1], who: mn[2], t: mn[3], what: mn[4], from: mn[5], side: mn[6] } : null,
-        bales: (m.bl || []).map((q) => ({ x: q[0], y: q[1], r: C.BALE_R })),
+        bales: (m.bl || []).map((q) => ({ x: q[0], y: q[1], r: geo(m.sz).bale })),
         omen: m.om ? m.om.map((q) => ({ x: q[0], from: q[1], vx: q[2] })) : null,
         bolt: m.bt ? { x: m.bt[0], y: m.bt[1], t: m.bt[2] } : null,
       },
@@ -671,7 +748,7 @@
   function view(S, alpha) {
     const L = (a, b) => a + (b - a) * alpha;
     return {
-      tk: S.tick, ph: S.phase, t: S.t, clock: S.clock, ot: S.ot, score: S.score, winner: S.winner, lastGoal: S.lastGoal,
+      size: S.size, n: S.n, tk: S.tick, ph: S.phase, t: S.t, clock: S.clock, ot: S.ot, score: S.score, winner: S.winner, lastGoal: S.lastGoal,
       round: S.round, shots: S.shots, locked: [locked(S, 0) && S.phase === 'plan', locked(S, 1) && S.phase === 'plan'],
       ready: Object.keys(S.ready).map(Number), owners: S.owner, teams: S.teams,
       ball: { x: L(S.ball.px, S.ball.x), y: L(S.ball.py, S.ball.y), vx: S.ball.vx, vy: S.ball.vy },
@@ -685,7 +762,7 @@
     const L = (x, y) => x + (y - x) * k;
     const bales = b.fx.bales.length === a.fx.bales.length ? b.fx.bales.map((q, i) => ({ x: L(a.fx.bales[i].x, q.x), y: L(a.fx.bales[i].y, q.y), r: q.r })) : b.fx.bales;
     return {
-      tk: k < 0.5 ? a.tk : b.tk, ph: b.ph, t: L(a.t, b.t), clock: L(a.clock, b.clock), ot: b.ot, score: b.score, winner: b.winner,
+      size: b.size, n: b.n, tk: k < 0.5 ? a.tk : b.tk, ph: b.ph, t: L(a.t, b.t), clock: L(a.clock, b.clock), ot: b.ot, score: b.score, winner: b.winner,
       lastGoal: b.lastGoal, round: b.round, shots: b.shots, locked: b.locked, ready: b.ready, owners: b.owners, teams: b.teams,
       ball: { x: L(a.ball.x, b.ball.x), y: L(a.ball.y, b.ball.y), vx: b.ball.vx, vy: b.ball.vy },
       discs: b.discs.map((q, i) => { const p = a.discs[i] || q; return { i: q.i, side: q.side, x: L(p.x, q.x), y: L(p.y, q.y) }; }),
@@ -693,5 +770,5 @@
     };
   }
 
-  return { C, MAPS: MAP_IDS, create, setMap, restart, step, setPlan, setReady, setTeam, removePlayer, miniDone, takeEvents, snapshot, parseSnapshot, view, lerpView };
+  return { C, MAPS: MAP_IDS, SIZES: SIZE_IDS, geo, formsFor, create, setSize, setFormation, setMap, restart, step, setPlan, setReady, setTeam, removePlayer, miniDone, takeEvents, snapshot, parseSnapshot, view, lerpView };
 }));

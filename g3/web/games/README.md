@@ -4,7 +4,7 @@ One folder per game, named after its id in `game/hub.py` (`GAMES`):
 
 | folder | game | state |
 | --- | --- | --- |
-| `bobble_league/` | Bobble League, top-down simultaneous-planning tactics (teams of 6) | playable (base game) |
+| `bobble_league/` | Bobble League, top-down simultaneous-planning tactics (3 v 3 to 5 v 5, by stadium size) | playable (base game) |
 | `rising_rush/` | Rising Rush, ninja boss rush | not started |
 | `battle_tide/` | Battle Tide, naval tactics | not started |
 | `letter_league/` | Letter League, co-op word puzzle | not started |

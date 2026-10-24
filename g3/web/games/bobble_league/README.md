@@ -1,33 +1,48 @@
 # Bobble League
 
-Top-down tactics for 2-8 players, a bit like carrom or table football played with flicked discs. Every team is always
-**six bobbles** and there is one ball. You never run around: each round you decide which way and how hard each of your bobbles
+Top-down tactics for 2-8 players, a bit like carrom or table football played with flicked discs. The stadium you pick decides
+the size of the match, from **3 v 3** to **5 v 5**, and there is one ball. You never run around: each round you decide which way and how hard each of your bobbles
 will be flicked, **both teams plan at the same time**, and then everything flies at once.
 
 ## Rules as built
 
-* **Menu:** every match opens on the game menu. The host picks a gameplay style (guests wait and watch): **Classic** (the plain
-  pitch) or **Arenas** (see below); to add a style add an entry to `MODES` at the top of `game.js` and it appears as a card. Arenas
-  opens a map screen first, with one card per arena. Then comes the team
-  screen: each team's **captain** (its first player; alone in the room you are both captains) picks a **team name** (up to 12
-  characters) and a **mascot** (12 to choose from, drawn on every bobble), then presses READY. The match starts when both
-  captains are ready.
+* **Menu:** every match opens on the game menu. The host picks, one screen after the other (guests wait and watch):
+  1. a gameplay style: **Classic** (the plain pitch) or **Arenas** (see below); to add a style add an entry to `MODES` at the top
+     of `game.js` and it appears as a card;
+  2. the **stadium** (see below), which sets the pitch and how many bobbles a team has;
+  3. for Arenas only, one of the four arenas;
+  4. the team screen: each team's **captain** (its first player; alone in the room you are both captains) picks a **team name** (up
+     to 12 characters), a **mascot** (12 to choose from, drawn on every bobble) and a **formation** (where its bobbles stand at
+     kick-off, with a little picture of it), then presses READY. The match starts when both captains are ready.
+* **Stadiums:** the size of the stadium picks the kind of match (`SIZES` in `sim.js`; the menu shows them smallest first).
+
+  | stadium | match | pitch | match clock | formations |
+  | --- | --- | --- | --- | --- |
+  | **Local** | 3 v 3 | the smallest, 760 x 480 | 4:00 | balanced, attacking, defensive, column |
+  | **Little League** | 4 v 4 | about 2.6 x the area, 1240 x 760 | 5:00 | diamond, box, attacking, defensive |
+  | **Premier League** | 5 v 5 | the biggest, 1700 x 1040 | 6:00 | balanced, attacking, defensive, midfield |
+
+  First to 3 goals in all of them. The bigger the pitch the harder a full-power flick is (so you can still cross it) and the
+  bigger the bobbles, ball, hay bales and lightning, so they stay easy to see. Formations are in `FORMS` in `sim.js`: add one
+  and it appears on the team screen. After every goal both teams line up in their formation again.
 * **Fullscreen:** the game always fills the browser window, and asks for real fullscreen on arrival, on the first key press or
   click, and when a style is picked (browsers only allow it after a gesture). Leave fullscreen yourself and it stops asking
   until you press `[ FULLSCREEN ]` or `F`.
 * **Teams:** cyan (defends the left goal) and magenta (defends the right). Players take the teams by slot (host cyan, first
-  guest magenta, ...). The six bobbles of a team are **shared out evenly** between its players:
+  guest magenta, ...). The bobbles of a team are **shared out evenly** between its players, for example in Little League (4 a team):
 
   | players | split | each player commands |
   | --- | --- | --- |
-  | 2 | 1 v 1 | 6 bobbles |
-  | 3 | 2 v 1 | 3 and 3 / 6 |
-  | 4 | 2 v 2 | 3 bobbles |
-  | 6 | 3 v 3 | 2 bobbles |
-  | 8 | 4 v 4 | 2, 2, 1, 1 |
-  | solo test | | all 12, for both teams |
+  | 2 | 1 v 1 | 4 bobbles |
+  | 3 | 2 v 1 | 2 and 2 / 4 |
+  | 4 | 2 v 2 | 2 bobbles |
+  | 6 | 3 v 3 | 2, 1, 1 |
+  | 8 | 4 v 4 | 1 each |
+  | solo test | | everything, for both teams |
 
-  If a player leaves, their bobbles are handed to the rest of their team.
+  Every player needs a bobble: if the stadium is too small for the room (4 players a side in Local, which has 3 bobbles a team) the
+  extra player just watches (the stadium picker warns about it). If a player leaves, their bobbles are handed to the rest
+  of their team.
 * **A round:** *plan, lock in, play.* During the **plan** phase (30 s) every player sets a flick (direction and power) for as
   many of their own bobbles as they like, then **locks in**. When everybody has locked in, or the time is up, all the flicks
   happen **at the same moment**; bobbles and ball slide, collide and rebound until all of them have stopped, and the next round of
@@ -40,16 +55,18 @@ will be flicked, **both teams plan at the same time**, and then everything flies
 
 ## Arenas
 
-The same game in four maps. Each map changes the physics and has one random event of its own. Events never start in round 1, are
-rolled from a seed the host picks for the match (so the same seed plays out the same way), and every number below is in `C` at the
-top of `sim.js` (`HECKLE_P`, `STORM_P`, `BALES_P`, `BOLT_EVERY`, `STUN`, `FROST_AFTER`, ...).
+The same game in four maps. Each map changes the physics and has one random event of its own. **Events start straight away**: the
+first event of a match always happens in round 1 (the bolt is on a timer, the others are certain the first time), and after that
+they keep coming: the minigame events roughly every other round, hay bales nearly every round, lightning every 6 to 12 seconds of
+play. They are rolled from a seed the host picks for the match (so the same seed plays out the same way), and every number below is
+in `C` at the top of `sim.js` (`WARMUP`, `COOLDOWN`, `HECKLE_P`, `STORM_P`, `BALES_P`, `BOLT_FIRST`, `BOLT_EVERY`, `STUN`, `FROST_AFTER`, ...).
 
 | arena | pitch | event |
 | --- | --- | --- |
-| **The Stadium** | normal grass, crowd and flashbulbs | **Hecklers.** An onlooker pelts one player (tomato, soda, banana peel or jeering). Their bobbles are covered in the splat and *a teammate takes them over* (the teammate plans all six, and has to lock in again) while the pelted player rubs their screen clean in the **wipe-off** minigame. Done, or after 12 s, they get their bobbles back. With nobody to carry them (1 v 1, or a lone player on a team) the bobbles are *stuck* until then. Roughly every third round, never twice in a row. |
+| **The Stadium** | normal grass, crowd and flashbulbs | **Hecklers.** An onlooker pelts one player (tomato, soda, banana peel or jeering). Their bobbles are covered in the splat and *a teammate takes them over* (the teammate plans all six, and has to lock in again) while the pelted player rubs their screen clean in the **wipe-off** minigame. Done, or after 12 s, they get their bobbles back. With nobody to carry them (1 v 1, or a lone player on a team) the bobbles are *stuck* until then. Most rounds, but never two in a row. |
 | **The Desert** | sand: everything slows down fast | **Hay bales.** Announced during planning (a dashed path and a wheat icon at the edge), they roll across the pitch once the flicks start and knock bobbles and ball about, then leave. **Sandstorms.** A round opens with a dig-out race instead of planning: every player mashes `SPACE`/click to dig out; the quickest time wins. The winner's team plays the round, the other team's bobbles are locked in place (padlock) and don't have to lock in. Nobody out in 10 s: no lock. |
 | **The Tundra** | ice: everything slides | **Snowstorms**, the same race with a shake-it-off minigame (alternate `←`/`→` or `A`/`D`). **Frostbite:** a bobble that doesn't move for more than 2 rounds starts to freeze (flicks at 65%, then 35% power, and more drag; a warning shows when it is one round from freezing); at the third level it is frozen solid and can't be flicked until another bobble knocks it, which thaws it a level. Moving a bobble (or being hit) keeps it warm; a goal thaws everyone. |
-| **The Rainforest** | wet grass: slippery | **Lightning.** About every 20 s of play a strike is announced for a second (a ring on the pitch) and then stuns the closest bobble and any right beside it (at most three) for **10 s**: they can't be flicked and lose their plan. |
+| **The Rainforest** | wet grass: slippery | **Lightning.** The first strike comes about 4 s into the match, then about every 9 s of play (a timer, not a lottery); a strike is announced for a second (a ring on the pitch) and then stuns the closest bobble and any right beside it (at most three) for **10 s**: they can't be flicked and lose their plan. |
 
 Every event announces itself with a **popup** at the top of the screen (above the minigames and the weather, so it can't be hidden).
 A popup lasts as long as its effect: the heckle until the player is clean or 12 s are up, a storm for the race and then a "who won the
@@ -74,9 +91,11 @@ Gold ring: yours, no plan yet. Green ring and arrow: planned. Dashed team-colour
 
 ## Files
 
-* `sim.js`: the physics and rules, pure JS with no DOM. All tuning constants are in `C` at the top.
+* `sim.js`: the physics and rules, pure JS with no DOM. All tuning constants are in `C` at the top; the stadiums are in `SIZES`
+  and the formations in `FORMS`.
   `node sim.test.js` runs its tests.
-* `game.js`: the menus, rendering (including each arena's artwork and weather), input and networking (registers with the lobby; see
+* `game.js`: the menus (mode, stadium, arena, teams and formations), rendering (including each arena's artwork and weather, drawn
+  to fit whichever stadium was picked), input and networking (registers with the lobby; see
   `../README.md`).
 * `minigames.js`: the three arena minigames (wipe-off, dig-out, shake-off); they only report how long they took.
 * `game.css`: the frame around the canvas, the menu and the team screen.
@@ -85,14 +104,14 @@ Gold ring: yours, no plan yet. Green ring and arrow: planned. Dashed team-colour
 ## Netcode
 
 The host's browser runs the simulation at a fixed 60 Hz (from a Web Worker timer, so a covered window doesn't slow
-it) and sends a snapshot over the game channel: `{k:'s', tk, ph, t, c, ot, sc, w, lg, rd, sh, lk, rg, ow, tm, b:[x,y,vx,vy],
-d:[x0,y0,x1,y1,...12 bobbles], ev:[...]}`, about 500 bytes (`lk` which teams have locked in, `rg` who has, `ow` which player
+it) and sends a snapshot over the game channel: `{k:'s', sz, tk, ph, t, c, ot, sc, w, lg, rd, sh, lk, rg, ow, tm, b:[x,y,vx,vy],
+d:[x0,y0,x1,y1,... one pair per bobble], ev:[...]}`, about 500 bytes (`sz` the stadium, so a guest that missed the `begin` message still draws the right pitch; `lk` which teams have locked in, `rg` who has, `ow` which player
 commands each bobble, `tm` team names and mascots). While things move the snapshot rate depends on the link
 (30/s LAN, 20/s relay, up to 15/s online but capped so that guests x rate stays within a publish budget, 4/s radio);
 while everyone plans it is a 5/s trickle that keeps the timer honest, with an immediate snapshot on every round start, flick-off,
 goal and lock-in. Guests send `{k:'plan', i, ax, ay, _h:true}` (bobble index and the flick as a fraction of full power),
-`{k:'ready', v, _h:true}`, `{k:'mini', ms}` (I finished my minigame in `ms`) and, captains only, `{k:'team', side, name?, mascot?, ready?, _h:true}`. The host accepts a plan only from
-the player who commands that bobble and only during planning. Menu state travels as `{k:'setup', st:'maps'|'teams', map, ...}`, `{k:'begin', map, ...}` and
+`{k:'ready', v, _h:true}`, `{k:'mini', ms}` (I finished my minigame in `ms`) and, captains only, `{k:'team', side, name?, mascot?, form?, ready?, _h:true}`. The host accepts a plan only from
+the player who commands that bobble and only during planning. Menu state travels as `{k:'setup', st:'sizes'|'maps'|'teams', size, map, forms, ...}`, `{k:'begin', size, map, forms, ...}` and
 `{k:'menu'}` from the host. In an arena the snapshot also carries what the arena adds, left out when at rest (so a classic snapshot is no bigger
 than before): `mp` map, `fr`/`il` frostbite and idle counts, `sn` stun seconds, `bk` why each bobble can't be flicked, `pt` the pelted
 player's bobbles, `fz` the team locked in place, `mn` the running minigame, `bl` hay bales, `om` the announced bales, `bt` the lightning warning. Guests draw about two snapshot intervals in the past, interpolating between snapshots.

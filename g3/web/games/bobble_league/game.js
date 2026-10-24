@@ -1,7 +1,6 @@
 /* Bobble League: the client.  Registers with the lobby (G3.registerGame) and is mounted when the host starts the game.
  *
- * A top-down tactics game.  Every team is six bobbles, shared out evenly between its players (1 v 1: six each, 2 v 2: three
- * each, ...).  Each round BOTH teams plan at the same time: drag a bobble back (like a slingshot or a carrom striker) to set
+ * A top-down tactics game.  Every team has 3, 4 or 5 bobbles (the stadium picks), shared out evenly between its players.  Each round BOTH teams plan at the same time: drag a bobble back (like a slingshot or a carrom striker) to set
  * which way and how hard it will be flicked, do that for as many of your bobbles as you like, then LOCK IN.  When everybody
  * has locked in (or the time is up) every flick happens at once and the bobbles slide, collide and rebound until all has
  * stopped; then the next round of planning starts.  Your plans are private: nobody else is ever sent them.
@@ -9,18 +8,30 @@
  *   host   runs the simulation (sim.js) and streams snapshots through the room's game channel;
  *   guests send their plans to the host ({k:'plan', i, ax, ay, _h:true}, {k:'ready', v, _h:true}) and draw interpolated snapshots.
  *
- * Every match opens on the game menu: the host picks the gameplay style (MODES below), then each team's captain picks the
- * team name and mascot; the match starts when both captains are ready.  The game always fills the window and asks for real
+ * Every match opens on the game menu: the host picks the gameplay style (MODES below), the stadium (STADIUMS: it sets the pitch and
+ * the team size) and, for arenas, the arena; then each team's captain picks the team name, mascot and formation; the match starts
+ * when both captains are ready.  The game always fills the window and asks for real
  * fullscreen as soon as the browser allows it.
  */
 (function () {
   'use strict';
   const Sim = window.BobbleSim, C = Sim.C;
 
-  // The view is the pitch plus a margin for the nets (sides), the scoreboard (top) and the banner (bottom).
-  const MX = C.NET + 40, TM = 78, BM = 74;
-  const VW = C.W + 2 * MX, VH = TM + C.H + BM;
-  const MAXPULL = 170, MINPULL = 14;                              // drag length (pitch px) for full power / to count as a plan
+  // The view is the pitch plus a margin for the nets (sides), the scoreboard (top) and the banner (bottom).  The pitch depends on
+  // the stadium the host picked (Sim.geo), so these are set again by setGeo() whenever the size changes.
+  let G = Sim.geo('little'), TM = 78, BM = 74, MX = 0, VW = 0, VH = 0, HS = 1;
+  let MAXPULL = 170, MINPULL = 14;                                // drag length (pitch px) for full power / to count as a plan
+  /** Switch to a stadium.  Returns true if that changed anything. */
+  function setGeo(id) {
+    const g = Sim.geo(id);
+    if (g.id === G.id && VW) return false;
+    G = g; MX = g.NET + 40; VW = g.W + 2 * MX;
+    HS = Math.max(1, VW / 1220);                                  // the scoreboard, banner and labels grow with a big stadium so they stay readable
+    TM = Math.round(78 * HS); BM = Math.round(74 * HS); VH = TM + g.H + BM;
+    MAXPULL = 170 * g.u; MINPULL = 14 * g.u;
+    return true;
+  }
+  setGeo('little');
 
   const TEAM = [
     { name: 'CYAN', main: '#27d3f2', dark: '#0a7a96', light: '#b5f6ff', rgb: '39,211,242' },
@@ -32,8 +43,14 @@
   const EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
   // Gameplay styles offered on the menu.  Add one here and it shows up as a card; `id` is sent to the guests with the start.
   const MODES = [
-    { id: 'classic', name: 'CLASSIC', blurb: 'Top-down tactics. Six bobbles a team, shared between the players. Everyone plans a flick for each bobble at the same time, locks in, and they all fly at once. First to 3 wins.' },
+    { id: 'classic', name: 'CLASSIC', blurb: 'Top-down tactics. Every bobble is shared between the players of its team. Everyone plans a flick for each bobble at the same time, locks in, and they all fly at once. First to 3 wins.' },
     { id: 'arenas', name: 'ARENAS', maps: true, blurb: 'The same game in four arenas. Each one plays differently and throws a random event at you: hecklers, sandstorms, frostbite, lightning.' },
+  ];
+  // The stadiums, picked right after the mode (the sim knows the pitch and the team size by `id`; this is how they are shown).
+  const STADIUMS = [
+    { id: 'local', name: 'LOCAL', icon: '🏘️', tag: '3 v 3 // SMALLEST STADIUM', blurb: 'A quick kickabout on a tiny pitch. Three bobbles a side, wall-to-wall action and goals all the time.' },
+    { id: 'little', name: 'LITTLE LEAGUE', icon: '🏟️', tag: '4 v 4 // BIG STADIUM', blurb: 'A much bigger ground with four bobbles a side. Room to build moves and pass round the defence.' },
+    { id: 'premier', name: 'PREMIER LEAGUE', icon: '🏆', tag: '5 v 5 // THE BIGGEST STADIUM', blurb: 'The big stage. The largest ground of all and five bobbles a side: line up well, and flick hard to cross it.' },
   ];
   // The arenas (the sim knows their physics and events by `id`; this is how they are shown).
   const ARENAS = [
@@ -54,15 +71,38 @@
     return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   }
 
+  /** A small picture of a stadium (an <svg>): the pitch with the bobbles of each team standing in the formation given for it
+   *  (an id from Sim.formsFor; '' leaves that team out).  `width` is in px, 0 fills whatever holds it. */
+  function pitchSvg(g, forms, width) {
+    const pad = g.NET, sw = Math.max(3, g.W / 170), team = Sim.formsFor(g.n);
+    let o = `<svg class="bl-svg" viewBox="${-pad} 0 ${g.W + 2 * pad} ${g.H}" ${width ? `style="width:${width}px"` : ''} xmlns="http://www.w3.org/2000/svg">`;
+    o += `<rect x="${-pad}" y="0" width="${g.W + 2 * pad}" height="${g.H}" fill="#06140c"/><rect x="0" y="0" width="${g.W}" height="${g.H}" fill="#168c4a" stroke="#e9fff0" stroke-width="${sw}"/>`;
+    o += `<line x1="${g.W / 2}" y1="0" x2="${g.W / 2}" y2="${g.H}" stroke="#e9fff0" stroke-width="${sw}"/><circle cx="${g.W / 2}" cy="${g.H / 2}" r="${g.H * 0.148}" fill="none" stroke="#e9fff0" stroke-width="${sw}"/>`;
+    for (const side of [0, 1]) {
+      o += `<rect x="${side ? g.W : -pad}" y="${g.GY0}" width="${pad}" height="${g.GY1 - g.GY0}" fill="#020712" stroke="${TEAM[side].main}" stroke-width="${sw}"/>`;
+      const f = forms && team.find((q) => q.id === forms[side]);
+      if (f) for (const [fx, fy] of f.pts) o += `<circle cx="${side ? g.W - fx * g.W : fx * g.W}" cy="${fy * g.H}" r="${g.dr * 1.6}" fill="${TEAM[side].main}" stroke="#04061e" stroke-width="${sw * 0.8}"/>`;
+    }
+    return o + `<circle cx="${g.W / 2}" cy="${g.H / 2}" r="${g.br * 1.6}" fill="#fff"/></svg>`;
+  }
+
   // ------------------------------------------------------------------ arena artwork (painted once into the cached background)
   const LINE = { classic: 'rgba(255,255,255,.82)', stadium: 'rgba(255,255,255,.85)', desert: 'rgba(255,250,230,.9)', tundra: 'rgba(22,66,140,.85)', rainforest: 'rgba(235,255,240,.82)' };
   const CROWD = ['#f046d8', '#27d3f2', '#ffd43b', '#ff5c7a', '#ffffff', '#7cf29a', '#9fb0ff', '#ff9f43'];
 
   // the area around the pitch: x -MX..W+MX, y -TM..H+BM
   function paintSurround(c, map, rnd) {
-    const X0 = -MX, Y0 = -TM, X1 = C.W + MX, Y1 = C.H + BM;
+    const X0 = -MX, Y0 = -TM, X1 = G.W + MX, Y1 = G.H + BM;
     const vgrad = (a, b, d) => { const g = c.createLinearGradient(0, Y0, 0, Y1); g.addColorStop(0, a); g.addColorStop(0.5, b); g.addColorStop(1, d || a); return g; };
-    const ringOnly = (fn) => { c.save(); c.beginPath(); c.rect(X0, Y0, VW, VH); c.rect(0, 0, C.W, C.H); c.clip('evenodd'); fn(); c.restore(); };      // draw in the margins only
+    const ringOnly = (fn) => { c.save(); c.beginPath(); c.rect(X0, Y0, VW, VH); c.rect(0, 0, G.W, G.H); c.clip('evenodd'); fn(); c.restore(); };      // draw in the margins only
+    // The scenery below was laid out for a 1000 x 620 pitch: stretch its spots over this stadium (and repeat them on a wide one),
+    // and scale how many random specks there are with the area.
+    const ar = (VW * VH) / (1220 * 772), reps = Math.max(1, Math.round(G.W / 1000));
+    const spots = (list) => {
+      const out = [];
+      for (let r = 0; r < reps; r++) for (const [x, y, s] of list) out.push([X0 + ((x + 110) / 1220 + r) * VW / reps, y < 0 ? y : y >= 620 ? G.H + (y - 620) : y * G.H / 620, s * G.u]);
+      return out;
+    };
     if (map === 'stadium') {
       c.fillStyle = vgrad('#171a3f', '#0d1030'); c.fillRect(X0, Y0, VW, VH);
       ringOnly(() => {
@@ -75,9 +115,11 @@
       });
       const ads = ['BOBBLE LEAGUE', 'G3 ARCADE', 'FLICK IT', 'LOCK IN!'], cols = ['#f046d8', '#27d3f2', '#ffd43b', '#7cf29a'];
       c.font = '8px "Press Start 2P", monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      for (const [y, h] of [[-16, 13], [C.H + 3, 13]]) for (let i = 0; i < 4; i++) {            // advertising boards along the touchlines
-        c.fillStyle = cols[i]; c.fillRect(i * 250, y, 250, h); c.fillStyle = 'rgba(4,6,30,.88)'; c.fillRect(i * 250 + 3, y + 2, 244, h - 4);
-        c.fillStyle = cols[i]; c.fillText(ads[i], i * 250 + 125, y + h / 2 + 1);
+      const nb = Math.max(4, Math.round(G.W / 250)), bw = G.W / nb;
+      for (const [y, h] of [[-16, 13], [G.H + 3, 13]]) for (let i = 0; i < nb; i++) {            // advertising boards along the touchlines
+        const col = cols[i % 4];
+        c.fillStyle = col; c.fillRect(i * bw, y, bw, h); c.fillStyle = 'rgba(4,6,30,.88)'; c.fillRect(i * bw + 3, y + 2, bw - 6, h - 4);
+        c.fillStyle = col; c.fillText(ads[i % 4], i * bw + bw / 2, y + h / 2 + 1);
       }
       for (const [x, y] of [[X0 + 10, Y0 + 8], [X1 - 10, Y0 + 8], [X0 + 10, Y1 - 8], [X1 - 10, Y1 - 8]]) {      // floodlights
         const g = c.createRadialGradient(x, y, 2, x, y, 150); g.addColorStop(0, 'rgba(255,248,220,.7)'); g.addColorStop(1, 'rgba(255,248,220,0)');
@@ -86,9 +128,9 @@
     } else if (map === 'desert') {
       c.fillStyle = vgrad('#8a5a2b', '#b9854a'); c.fillRect(X0, Y0, VW, VH);
       ringOnly(() => {
-        for (let n = 0; n < 40; n++) { c.fillStyle = n % 2 ? 'rgba(255,220,150,.12)' : 'rgba(80,40,10,.14)'; const x = X0 + rnd() * VW, y = Y0 + rnd() * VH; c.beginPath(); c.ellipse(x, y, 40 + rnd() * 90, 8 + rnd() * 16, 0, 0, 7); c.fill(); }
-        for (let n = 0; n < 16; n++) { const x = X0 + rnd() * VW, y = Y0 + rnd() * VH; c.fillStyle = '#6d5a49'; c.beginPath(); c.ellipse(x, y, 7 + rnd() * 7, 5 + rnd() * 4, 0, 0, 7); c.fill(); c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.ellipse(x - 2, y - 2, 4, 2, 0, 0, 7); c.fill(); }
-        for (const [x, y, s] of [[-70, -40, 1], [160, -48, 0.8], [640, -44, 1.1], [930, -40, 0.9], [-85, 520, 1], [330, C.H + 44, 1.05], [760, C.H + 40, 0.85], [1075, 500, 1], [1070, 110, 0.9], [-80, 120, 0.8]]) {      // cacti
+        for (let n = 0, N = Math.round(40 * ar); n < N; n++) { c.fillStyle = n % 2 ? 'rgba(255,220,150,.12)' : 'rgba(80,40,10,.14)'; const x = X0 + rnd() * VW, y = Y0 + rnd() * VH; c.beginPath(); c.ellipse(x, y, 40 + rnd() * 90, 8 + rnd() * 16, 0, 0, 7); c.fill(); }
+        for (let n = 0, N = Math.round(16 * ar); n < N; n++) { const x = X0 + rnd() * VW, y = Y0 + rnd() * VH; c.fillStyle = '#6d5a49'; c.beginPath(); c.ellipse(x, y, 7 + rnd() * 7, 5 + rnd() * 4, 0, 0, 7); c.fill(); c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.ellipse(x - 2, y - 2, 4, 2, 0, 0, 7); c.fill(); }
+        for (const [x, y, s] of spots([[-70, -40, 1], [160, -48, 0.8], [640, -44, 1.1], [930, -40, 0.9], [-85, 520, 1], [330, 620 + 44, 1.05], [760, 620 + 40, 0.85], [1075, 500, 1], [1070, 110, 0.9], [-80, 120, 0.8]])) {      // cacti
           c.fillStyle = 'rgba(0,0,0,.25)'; c.beginPath(); c.ellipse(x + 6 * s, y + 24 * s, 16 * s, 5 * s, 0, 0, 7); c.fill();
           c.fillStyle = '#2f8f4a'; c.strokeStyle = '#1c5f31'; c.lineWidth = 2;
           const rr = (rx, ry, w, h) => { c.beginPath(); c.roundRect ? c.roundRect(rx, ry, w, h, w / 2) : c.rect(rx, ry, w, h); c.fill(); c.stroke(); };
@@ -98,8 +140,8 @@
     } else if (map === 'tundra') {
       c.fillStyle = vgrad('#e7f6fd', '#b4d9ee'); c.fillRect(X0, Y0, VW, VH);
       ringOnly(() => {
-        for (let n = 0; n < 34; n++) { c.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.4})`; c.beginPath(); c.ellipse(X0 + rnd() * VW, Y0 + rnd() * VH, 30 + rnd() * 80, 6 + rnd() * 12, 0, 0, 7); c.fill(); }
-        for (const [x, y, s] of [[-85, -30, 1], [-30, -50, 0.8], [190, -46, 0.9], [470, -52, 1.1], [740, -44, 0.85], [980, -48, 1], [1075, 40, 0.9], [-90, 540, 1], [140, C.H + 46, 0.9], [560, C.H + 50, 1.1], [880, C.H + 44, 0.85], [1070, 500, 1]]) {      // pines
+        for (let n = 0, N = Math.round(34 * ar); n < N; n++) { c.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.4})`; c.beginPath(); c.ellipse(X0 + rnd() * VW, Y0 + rnd() * VH, 30 + rnd() * 80, 6 + rnd() * 12, 0, 0, 7); c.fill(); }
+        for (const [x, y, s] of spots([[-85, -30, 1], [-30, -50, 0.8], [190, -46, 0.9], [470, -52, 1.1], [740, -44, 0.85], [980, -48, 1], [1075, 40, 0.9], [-90, 540, 1], [140, 620 + 46, 0.9], [560, 620 + 50, 1.1], [880, 620 + 44, 0.85], [1070, 500, 1]])) {      // pines
           c.fillStyle = 'rgba(0,30,60,.2)'; c.beginPath(); c.ellipse(x + 8 * s, y + 30 * s, 22 * s, 6 * s, 0, 0, 7); c.fill();
           c.fillStyle = '#5a3b22'; c.fillRect(x - 3 * s, y + 18 * s, 6 * s, 14 * s);
           for (let t = 0; t < 3; t++) {
@@ -113,7 +155,7 @@
       c.fillStyle = vgrad('#03130d', '#0a3524'); c.fillRect(X0, Y0, VW, VH);
       ringOnly(() => {
         const greens = ['#0f5a31', '#157a42', '#1b9a52', '#0b4126', '#23b363'];
-        for (let n = 0; n < 150; n++) {                                                             // leaves
+        for (let n = 0, N = Math.round(150 * ar); n < N; n++) {                                     // leaves
           const x = X0 + rnd() * VW, y = Y0 + rnd() * VH, a = rnd() * 6.3, l = 22 + rnd() * 40;
           c.save(); c.translate(x, y); c.rotate(a); c.fillStyle = greens[Math.floor(rnd() * greens.length)];
           c.beginPath(); c.ellipse(0, 0, l, l * 0.3, 0, 0, 7); c.fill();
@@ -121,7 +163,7 @@
         }
         for (const [x, y] of [[X0 + 24, Y0 + 20], [X1 - 24, Y0 + 20], [X0 + 24, Y1 - 20], [X1 - 24, Y1 - 20]]) {     // palm fronds from the corners
           for (let f = 0; f < 7; f++) {
-            const a = (x < C.W / 2 ? 0 : Math.PI) + (y < C.H / 2 ? 1 : -1) * (0.15 + f * 0.2) * (x < C.W / 2 ? 1 : -1), l = 70 + (f % 2) * 22;
+            const a = (x < G.W / 2 ? 0 : Math.PI) + (y < G.H / 2 ? 1 : -1) * (0.15 + f * 0.2) * (x < G.W / 2 ? 1 : -1), l = 70 + (f % 2) * 22;
             c.strokeStyle = f % 2 ? '#1b9a52' : '#157a42'; c.lineWidth = 9; c.lineCap = 'round';
             c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l * 0.5, y + Math.sin(a) * l * 0.5 - 12, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
           }
@@ -135,39 +177,42 @@
 
   // the playing surface
   function paintGround(c, map, rnd) {
+    const sw = G.W / 10, pa = (G.W * G.H) / (1000 * 620);            // stripe width; how many more specks a bigger pitch gets
     if (map === 'desert') {
-      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#d9b36a' : '#d1a85f'; c.fillRect(i * 100, 0, 100, C.H); }
+      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#d9b36a' : '#d1a85f'; c.fillRect(i * sw, 0, sw, G.H); }
       c.strokeStyle = 'rgba(140,90,30,.2)'; c.lineWidth = 2;
-      for (let n = 0; n < 70; n++) { const x = rnd() * C.W, y = rnd() * C.H; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + 30, y - 7, x + 60, y); c.quadraticCurveTo(x + 90, y + 7, x + 120, y); c.stroke(); }
-      for (let n = 0; n < 1200; n++) { c.fillStyle = rnd() < 0.5 ? 'rgba(120,70,20,.16)' : 'rgba(255,240,200,.2)'; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2); }
+      for (let n = 0, N = Math.round(70 * pa); n < N; n++) { const x = rnd() * G.W, y = rnd() * G.H; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + 30, y - 7, x + 60, y); c.quadraticCurveTo(x + 90, y + 7, x + 120, y); c.stroke(); }
+      for (let n = 0, N = Math.round(1200 * pa); n < N; n++) { c.fillStyle = rnd() < 0.5 ? 'rgba(120,70,20,.16)' : 'rgba(255,240,200,.2)'; c.fillRect(rnd() * G.W, rnd() * G.H, 2, 2); }
     } else if (map === 'tundra') {
-      const g = c.createLinearGradient(0, 0, C.W, C.H); g.addColorStop(0, '#d6f2fd'); g.addColorStop(0.5, '#bfe6f7'); g.addColorStop(1, '#a6d5ee');
-      c.fillStyle = g; c.fillRect(0, 0, C.W, C.H);
-      for (let i = 0; i < 10; i++) if (i % 2) { c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(i * 100, 0, 100, C.H); }
-      for (let n = 0; n < 30; n++) {                                                                 // cracks in the ice
-        let x = rnd() * C.W, y = rnd() * C.H, a = rnd() * 6.3;
+      const g = c.createLinearGradient(0, 0, G.W, G.H); g.addColorStop(0, '#d6f2fd'); g.addColorStop(0.5, '#bfe6f7'); g.addColorStop(1, '#a6d5ee');
+      c.fillStyle = g; c.fillRect(0, 0, G.W, G.H);
+      for (let i = 0; i < 10; i++) if (i % 2) { c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(i * sw, 0, sw, G.H); }
+      for (let n = 0, N = Math.round(30 * pa); n < N; n++) {                                          // cracks in the ice
+        let x = rnd() * G.W, y = rnd() * G.H, a = rnd() * 6.3;
         c.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,.55)' : 'rgba(60,120,180,.22)'; c.lineWidth = 1 + rnd() * 1.5;
         c.beginPath(); c.moveTo(x, y);
         for (let k = 0; k < 6; k++) { a += (rnd() - 0.5) * 1.2; x += Math.cos(a) * (18 + rnd() * 30); y += Math.sin(a) * (18 + rnd() * 30); c.lineTo(x, y); }
         c.stroke();
       }
-      c.fillStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.moveTo(120, 0); c.lineTo(300, 0); c.lineTo(100, C.H); c.lineTo(-80, C.H); c.closePath(); c.fill();     // the shine
-      c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.moveTo(560, 0); c.lineTo(620, 0); c.lineTo(420, C.H); c.lineTo(360, C.H); c.closePath(); c.fill();
+      c.save(); c.scale(G.W / 1000, G.H / 620);
+      c.fillStyle = 'rgba(255,255,255,.2)'; c.beginPath(); c.moveTo(120, 0); c.lineTo(300, 0); c.lineTo(100, 620); c.lineTo(-80, 620); c.closePath(); c.fill();     // the shine
+      c.fillStyle = 'rgba(255,255,255,.12)'; c.beginPath(); c.moveTo(560, 0); c.lineTo(620, 0); c.lineTo(420, 620); c.lineTo(360, 620); c.closePath(); c.fill();
+      c.restore();
     } else if (map === 'rainforest') {
-      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#127a45' : '#0e6a3c'; c.fillRect(i * 100, 0, 100, C.H); }
-      for (let n = 0; n < 900; n++) { c.fillStyle = `rgba(150,255,170,${0.02 + rnd() * 0.04})`; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2 + rnd() * 4); }
-      for (let n = 0; n < 16; n++) {                                                                 // puddles
-        const x = 40 + rnd() * (C.W - 80), y = 30 + rnd() * (C.H - 60), rx = 30 + rnd() * 60, ry = 12 + rnd() * 22;
+      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#127a45' : '#0e6a3c'; c.fillRect(i * sw, 0, sw, G.H); }
+      for (let n = 0, N = Math.round(900 * pa); n < N; n++) { c.fillStyle = `rgba(150,255,170,${0.02 + rnd() * 0.04})`; c.fillRect(rnd() * G.W, rnd() * G.H, 2, 2 + rnd() * 4); }
+      for (let n = 0, N = Math.round(16 * pa); n < N; n++) {                                          // puddles
+        const x = 40 + rnd() * (G.W - 80), y = 30 + rnd() * (G.H - 60), rx = 30 + rnd() * 60, ry = 12 + rnd() * 22;
         c.fillStyle = 'rgba(110,190,235,.2)'; c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, 7); c.fill();
         c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 2; c.beginPath(); c.ellipse(x, y, rx * 0.7, ry * 0.6, 0, 3.6, 5.2); c.stroke();
       }
     } else {
-      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#1b9d55' : '#168c4a'; c.fillRect(i * 100, 0, 100, C.H); }
-      for (let n = 0; n < 900; n++) { c.fillStyle = `rgba(255,255,255,${0.015 + rnd() * 0.02})`; c.fillRect(rnd() * C.W, rnd() * C.H, 2, 2 + rnd() * 3); }
+      for (let i = 0; i < 10; i++) { c.fillStyle = i % 2 ? '#1b9d55' : '#168c4a'; c.fillRect(i * sw, 0, sw, G.H); }
+      for (let n = 0, N = Math.round(900 * pa); n < N; n++) { c.fillStyle = `rgba(255,255,255,${0.015 + rnd() * 0.02})`; c.fillRect(rnd() * G.W, rnd() * G.H, 2, 2 + rnd() * 3); }
     }
-    const lit = c.createRadialGradient(C.W / 2, C.H / 2, 60, C.W / 2, C.H / 2, C.W * 0.65);
+    const lit = c.createRadialGradient(G.W / 2, G.H / 2, 60, G.W / 2, G.H / 2, G.W * 0.65);
     lit.addColorStop(0, map === 'tundra' ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.1)'); lit.addColorStop(1, map === 'tundra' ? 'rgba(10,40,90,.22)' : map === 'rainforest' ? 'rgba(0,10,10,.5)' : 'rgba(0,12,30,.38)');
-    c.fillStyle = lit; c.fillRect(0, 0, C.W, C.H);
+    c.fillStyle = lit; c.fillRect(0, 0, G.W, G.H);
   }
 
   function mount(ctx) {
@@ -217,15 +262,22 @@
     const snaps = [];
     let base = null, ivl = 50, lastTk = -1, latest = null;
 
-    // ------------------------------------------------------------------ the menu: mode, then team names and mascots
-    let stage = 'menu', modeId = null, selMode = 0;               // 'menu' -> ('maps' ->) 'teams' -> 'play'
+    // ------------------------------------------------------------------ the menu: mode, stadium, (arena,) then team names, mascots and formations
+    let stage = 'menu', modeId = null, selMode = 0;               // 'menu' -> 'sizes' -> ('maps' ->) 'teams' -> 'play'
+    let sizeId = '', selSize = 0;                                 // the stadium: sets the pitch and how many bobbles a team has
     let mapId = 'classic', selMap = 0;                            // the arena ('classic' is the plain pitch)
-    const T = { names: [TEAM[0].name, TEAM[1].name], mascots: [0, 1], ready: [false, false] };      // what the team setup screen shows
+    const T = { names: [TEAM[0].name, TEAM[1].name], mascots: [0, 1], forms: ['', ''], ready: [false, false] };      // what the team setup screen shows
     const arenaOf = (id) => ARENAS.find((q) => q.id === id);
-    const modeName = () => { const m = MODES.find((q) => q.id === modeId); return m ? m.name + (arenaOf(mapId) ? ' // ' + arenaOf(mapId).name : '') : 'MODE SELECT'; };
+    const stadiumOf = (id) => STADIUMS.find((q) => q.id === id);
+    const modeName = () => {
+      const m = MODES.find((q) => q.id === modeId);
+      if (!m) return 'MODE SELECT';
+      return [m.name, stadiumOf(sizeId) && stadiumOf(sizeId).name, arenaOf(mapId) && arenaOf(mapId).name].filter(Boolean).join(' // ');
+    };
     const setModeLabel = () => { const el = wrap.querySelector('#blMode'); if (el) el.textContent = modeName(); };
+    const formOf = (s) => Sim.formsFor(G.n).find((f) => f.id === T.forms[s]) || Sim.formsFor(G.n)[0];
 
-    // the captain of a team (its first player) picks its name and mascot; alone in the room you are everybody's captain
+    // the captain of a team (its first player) picks its name, mascot and formation; alone in the room you are everybody's captain
     function captainOf(side) {
       const r = ctx.room();
       if (!r) return -1;
@@ -236,7 +288,26 @@
     const canEdit = (side) => captainOf(side) === you();
     const playersOf = (side) => { const r = ctx.room(); return r ? (r.slots.length < 2 ? r.slots : r.slots.filter((s, i) => i % 2 === side)) : []; };
 
-    function renderStage() { if (stage === 'menu') renderMenu(); else if (stage === 'maps') renderMaps(); else if (stage === 'teams') renderSetup(false); }
+    function renderStage() { if (stage === 'menu') renderMenu(); else if (stage === 'sizes') renderSizes(); else if (stage === 'maps') renderMaps(); else if (stage === 'teams') renderSetup(false); }
+
+    function renderSizes() {
+      menu.classList.remove('hidden', 'teams');
+      if (!isHost) {
+        menu.innerHTML = `<h2 class="bl-title">${esc(modeName())}</h2>
+          <div class="bl-sub">THE HOST IS CHOOSING THE STADIUM<span class="cursor-blink">_</span></div>`;
+        return;
+      }
+      const r = ctx.room(), per = Math.ceil((r ? r.slots.length : 1) / 2);
+      menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: CHOOSE YOUR STADIUM</h2>
+        <div class="bl-modes bl-sizes">${STADIUMS.map((z, i) => {
+          const g = Sim.geo(z.id), f = Sim.formsFor(g.n)[0].id;
+          return `<button class="bl-mode bl-size ${i === selSize ? 'sel' : ''}" data-bl="size" data-i="${i}"><b>${z.icon} ${z.name}</b><em class="bl-evt">${z.tag}</em>
+            <span class="bl-pitch">${pitchSvg(g, [f, f], Math.round(230 * Math.pow(g.W / Sim.geo('premier').W, 0.6)))}</span><span>${z.blurb}</span>
+            ${per > g.n ? `<em class="bl-warn">${per} PLAYERS A TEAM: ${per - g.n} OF THEM WOULD ONLY WATCH</em>` : ''}</button>`;
+        }).join('')}</div>
+        <div class="bl-row"><button data-bl="back">[ &lt; BACK TO MODES ]</button></div>
+        <div class="bl-sub">CLICK OR PRESS ENTER TO CONTINUE // ARROWS TO CHOOSE // THE SIZE OF THE STADIUM DECIDES THE TEAM SIZE</div>`;
+    }
 
     function renderMaps() {
       menu.classList.remove('hidden', 'teams');
@@ -247,7 +318,7 @@
       }
       menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: CHOOSE YOUR ARENA</h2>
         <div class="bl-modes bl-maps">${ARENAS.map((m, i) => `<button class="bl-mode bl-map m-${m.id} ${i === selMap ? 'sel' : ''}" data-bl="map" data-i="${i}"><b>${m.icon} ${m.name}</b><em class="bl-evt">EVENT: ${m.event}</em><span>${m.blurb}</span></button>`).join('')}</div>
-        <div class="bl-row"><button data-bl="back">[ &lt; BACK TO MODES ]</button></div>
+        <div class="bl-row"><button data-bl="back">[ &lt; BACK TO STADIUMS ]</button></div>
         <div class="bl-sub">CLICK OR PRESS ENTER TO CONTINUE // ARROWS TO CHOOSE</div>`;
     }
 
@@ -260,11 +331,11 @@
       }
       menu.innerHTML = `<h2 class="bl-title">BOBBLE LEAGUE</h2>
         <div class="bl-sub">SELECT YOUR GAMEPLAY STYLE</div>
-        <div class="bl-modes">${MODES.map((m, i) => `<button class="bl-mode ${i === selMode ? 'sel' : ''}" data-bl="mode" data-i="${i}"><b>${m.name}</b><span>${m.blurb}</span></button>`).join('')}
-          <div class="bl-mode soon"><b>MORE MODES</b><span>COMING SOON</span></div></div>
+        <div class="bl-modes">${MODES.map((m, i) => `<button class="bl-mode ${i === selMode ? 'sel' : ''}" data-bl="mode" data-i="${i}"><b>${m.name}</b><span>${m.blurb}</span></button>`).join('')}</div>
         <div class="bl-sub">CLICK OR PRESS ENTER TO CONTINUE // THE GAME OPENS FULL SCREEN</div>`;
     }
 
+    const formButtons = (s, can) => Sim.formsFor(G.n).map((f) => `<button data-bl="form" data-side="${s}" data-id="${f.id}" class="${formOf(s).id === f.id ? 'sel' : ''}" ${can ? '' : 'disabled'}>${f.name}<i>${f.shape}</i></button>`).join('');
     function panelHTML(s) {
       const can = canEdit(s), cap = slotOf(captainOf(s));
       const who = playersOf(s).map((p) => '@' + esc(p.n)).join(' ');
@@ -273,10 +344,14 @@
         <label class="bl-field">TEAM NAME<input class="bl-name" data-side="${s}" maxlength="${C.NAME_MAX}" spellcheck="false" autocomplete="off" value="${esc(T.names[s])}" ${can ? '' : 'disabled'}></label>
         <div class="bl-field">TEAM MASCOT</div>
         <div class="bl-mascots">${MASCOTS.map((m, i) => `<button data-bl="mascot" data-side="${s}" data-i="${i}" title="${m[1]}" class="${T.mascots[s] === i ? 'sel' : ''}" ${can ? '' : 'disabled'}>${m[0]}</button>`).join('')}</div>
+        <div class="bl-field">FORMATION: <b data-shape="${s}">${formOf(s).name} ${formOf(s).shape}</b></div>
+        <div class="bl-formrow"><div class="bl-forms" data-forms="${s}">${formButtons(s, can)}</div><div class="bl-formview" data-fv="${s}">${formView(s)}</div></div>
         <button class="bl-ready ${T.ready[s] ? 'on' : ''}" data-bl="teamready" data-side="${s}" ${can ? '' : 'disabled'}>${T.ready[s] ? '[ ✔ READY ]' : '[ READY ]'}</button>
         <div class="bl-sub" data-note="${s}">${can ? 'you are the captain' : `waiting for captain @${esc(cap ? cap.n : '?')}`}</div>
       </div>`;
     }
+    // where the team will stand at kick-off (the whole stadium, this team only)
+    const formView = (s) => pitchSvg(G, [s === 0 ? formOf(0).id : '', s === 1 ? formOf(1).id : ''], 0);
 
     function renderSetup(force) {
       if (stage !== 'teams') return;
@@ -285,12 +360,15 @@
       if (typing) { patchSetup(); return; }                       // keep the cursor where it is
       menu.innerHTML = `<h2 class="bl-title small">${esc(modeName())}: PICK YOUR TEAMS</h2>
         <div class="bl-teams">${panelHTML(0)}${panelHTML(1)}</div>
-        <div class="bl-sub">THE MATCH STARTS WHEN BOTH CAPTAINS ARE READY${isHost ? '' : ''}</div>
-        ${isHost ? `<div class="bl-row"><button data-bl="back">[ &lt; BACK TO ${arenaOf(mapId) ? 'ARENAS' : 'MODES'} ]</button></div>` : ''}`;
+        <div class="bl-sub">THE MATCH STARTS WHEN BOTH CAPTAINS ARE READY</div>
+        ${isHost ? `<div class="bl-row"><button data-bl="back">[ &lt; BACK TO ${arenaOf(mapId) ? 'ARENAS' : 'STADIUMS'} ]</button></div>` : ''}`;
     }
     function patchSetup() {
       for (const s of [0, 1]) {
         menu.querySelectorAll(`[data-bl="mascot"][data-side="${s}"]`).forEach((b) => b.classList.toggle('sel', +b.dataset.i === T.mascots[s]));
+        menu.querySelectorAll(`[data-bl="form"][data-side="${s}"]`).forEach((b) => b.classList.toggle('sel', b.dataset.id === formOf(s).id));
+        const sh = menu.querySelector(`[data-shape="${s}"]`); if (sh) sh.textContent = `${formOf(s).name} ${formOf(s).shape}`;
+        const fv = menu.querySelector(`[data-fv="${s}"]`); if (fv) fv.innerHTML = formView(s);
         const em = menu.querySelector(`[data-em="${s}"]`); if (em) em.textContent = mascotOf(T.mascots[s]);
         const rb = menu.querySelector(`[data-bl="teamready"][data-side="${s}"]`);
         if (rb) { rb.classList.toggle('on', T.ready[s]); rb.textContent = T.ready[s] ? '[ ✔ READY ]' : '[ READY ]'; }
@@ -299,13 +377,28 @@
       }
     }
 
-    // host: the mode was picked, now the teams
+    // host: show one of the menu screens (and tell the guests which)
+    function show(st) {
+      stage = st; setModeLabel(); broadcastSetup(); renderStage();
+      goFullscreen();
+      G3.beep(660, 0.1, 'square');
+    }
+    // host: the mode was picked, now the stadium
     function chooseMode(i) {
       const m = MODES[i];
       if (!isHost || !m || stage !== 'menu') return;
-      modeId = m.id; selMode = i; mapId = 'classic';
-      if (m.maps) { stage = 'maps'; setModeLabel(); broadcastSetup(); renderMaps(); goFullscreen(); G3.beep(660, 0.1, 'square'); return; }
-      toTeams();
+      modeId = m.id; selMode = i; mapId = 'classic'; sizeId = '';
+      show('sizes');
+    }
+    // host: the stadium was picked: it fixes the pitch and the team size.  Then the arena (arenas mode) or the teams.
+    function chooseSize(i) {
+      const z = STADIUMS[i];
+      if (!isHost || !z || stage !== 'sizes') return;
+      sizeId = z.id; selSize = i;
+      Sim.setSize(sim, sizeId); setGeo(sizeId);
+      for (const s of [0, 1]) T.forms[s] = sim.form[s];
+      const m = MODES.find((q) => q.id === modeId);
+      if (m && m.maps) show('maps'); else toTeams();
     }
     function chooseMap(i) {                                        // host: the arena was picked, now the teams
       const m = ARENAS[i];
@@ -314,25 +407,27 @@
       toTeams();
     }
     function toTeams() {
-      stage = 'teams';
       T.ready = [false, false];
-      for (const s of [0, 1]) { T.names[s] = sim.teams[s].name; T.mascots[s] = sim.teams[s].mascot; }
-      setModeLabel(); broadcastSetup(); renderSetup(true);
+      for (const s of [0, 1]) { T.names[s] = sim.teams[s].name; T.mascots[s] = sim.teams[s].mascot; T.forms[s] = sim.form[s]; }
+      stage = 'teams'; setModeLabel(); broadcastSetup(); renderSetup(true);
       goFullscreen();
       G3.beep(660, 0.1, 'square');
     }
-    function broadcastSetup() { ctx.send({ k: 'setup', st: stage, mode: modeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice(), ready: T.ready.slice() }); }
+    function broadcastSetup() { ctx.send({ k: 'setup', st: stage, mode: modeId, size: sizeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice(), forms: T.forms.slice(), ready: T.ready.slice() }); }
 
     // host: a captain changed their team (or pressed READY)
     function applyTeam(from, d) {
       if (!isHost || stage !== 'teams' || !d || typeof d !== 'object') return;
       const s = d.side === 1 ? 1 : 0;
       if (captainOf(s) !== from) return;
+      let changed = false;
       if (typeof d.name === 'string' || d.mascot !== undefined) {
         Sim.setTeam(sim, s, typeof d.name === 'string' ? d.name : undefined, d.mascot);
         T.names[s] = sim.teams[s].name; T.mascots[s] = sim.teams[s].mascot;
-        T.ready[s] = false;                                       // changing anything un-readies
+        changed = true;
       }
+      if (typeof d.form === 'string' && Sim.setFormation(sim, s, d.form)) { T.forms[s] = sim.form[s]; changed = true; }
+      if (changed) T.ready[s] = false;                            // changing anything un-readies
       if (typeof d.ready === 'boolean') T.ready[s] = d.ready;
       broadcastSetup();
       renderSetup(false);
@@ -345,7 +440,8 @@
       else {
         if (fields.mascot !== undefined) T.mascots[side] = fields.mascot;
         if (fields.name !== undefined) T.names[side] = String(fields.name).toUpperCase();
-        if (fields.mascot !== undefined || fields.name !== undefined) T.ready[side] = false;
+        if (fields.form !== undefined) T.forms[side] = fields.form;
+        if (fields.mascot !== undefined || fields.name !== undefined || fields.form !== undefined) T.ready[side] = false;
         if (fields.ready !== undefined) T.ready[side] = fields.ready;
         patchSetup();
         ctx.send(Object.assign({ k: 'team', side }, fields), true);
@@ -365,18 +461,21 @@
       stage = 'play'; plans = {}; lastRound = -1; clearPops();
       menu.classList.add('hidden'); over.classList.add('hidden'); shownOver = false;
       Sim.setMap(sim, mapId, (Math.random() * 4294967296) >>> 0);            // the seed makes the arena's random events
+      setGeo(sizeId);
       Sim.restart(sim); acc = 0; lastTick = performance.now(); sinceSnap = 1e9; forceSnap = true;
-      ctx.send({ k: 'begin', mode: modeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice() });
+      ctx.send({ k: 'begin', mode: modeId, size: sizeId, map: mapId, names: T.names.slice(), mascots: T.mascots.slice(), forms: T.forms.slice() });
       goFullscreen();
       G3.beep(880, 0.12, 'square');
     }
 
-    function goBack() {                                           // host: one step back from the team screen
-      if (stage === 'teams' && arenaOf(mapId)) { stage = 'maps'; mapId = 'classic'; setModeLabel(); broadcastSetup(); renderMaps(); } else showMenu();
+    function goBack() {                                           // host: one step back (teams -> arenas -> stadiums -> modes)
+      if (stage === 'teams' && arenaOf(mapId)) { mapId = 'classic'; show('maps'); }
+      else if (stage === 'teams' || stage === 'maps') { mapId = 'classic'; show('sizes'); }
+      else showMenu();
     }
     function showMenu() {                                         // host: back to the modes (also from a finished match)
       if (!isHost) return;
-      stage = 'menu'; modeId = null; mapId = 'classic'; drag = null; plans = {};
+      stage = 'menu'; modeId = null; sizeId = ''; mapId = 'classic'; drag = null; plans = {};
       over.classList.add('hidden'); shownOver = false;
       setModeLabel(); renderMenu();
       ctx.send({ k: 'menu' });
@@ -431,6 +530,7 @@
       if (d.tk <= lastTk) return;                                 // late or duplicate
       const now = performance.now(), hostMs = d.tk * 1000 / 60;
       const v = Sim.parseSnapshot(d);
+      setGeo(v.size);
       if (snaps.length) {
         const dh = hostMs - snaps[snaps.length - 1].h;
         if (dh < 150) ivl = ivl * 0.8 + clamp(dh, 8, 150) * 0.2;  // only the moving-phase rate says how far behind to draw
@@ -472,7 +572,7 @@
       return { x: (e.clientX - r.left) / r.width * VW - MX, y: (e.clientY - r.top) / r.height * VH - TM };
     }
     function discAt(v, p) {
-      let best = null, bd = C.DR * 1.45;
+      let best = null, bd = G.dr * 1.45;
       for (const d of v.discs) {
         if (!mineDisc(v, d) || v.fx.block[d.i]) continue;               // stunned, stuck, frozen or locked bobbles can't be flicked
         const dd = Math.hypot(d.x - p.x, d.y - p.y);
@@ -512,7 +612,7 @@
       const v = lastView, d = canPlan(v) ? discAt(v, p) : null;
       hover = d ? d.i : -1;
       hoverBlock = -1;
-      if (!d && v && stage === 'play' && v.ph === 'plan') for (const q of v.discs) if (mineDisc(v, q) && v.fx.block[q.i] && Math.hypot(q.x - p.x, q.y - p.y) < C.DR * 1.3) hoverBlock = q.i;
+      if (!d && v && stage === 'play' && v.ph === 'plan') for (const q of v.discs) if (mineDisc(v, q) && v.fx.block[q.i] && Math.hypot(q.x - p.x, q.y - p.y) < G.dr * 1.3) hoverBlock = q.i;
       canvas.style.cursor = d ? 'grab' : hoverBlock >= 0 ? 'not-allowed' : 'default';
     });
     function release(e) {
@@ -541,11 +641,20 @@
         else if (['ArrowDown', 'ArrowRight', 'KeyS', 'KeyD'].includes(k)) { e.preventDefault(); selMode = (selMode + 1) % MODES.length; renderMenu(); }
         return;
       }
+      if (stage === 'sizes') {
+        if (!isHost) return;
+        const k = e.code;
+        if (k === 'Enter' || k === 'Space' || k === 'NumpadEnter') { e.preventDefault(); chooseSize(selSize); }
+        else if (k === 'Escape') { e.preventDefault(); showMenu(); }
+        else if (['ArrowUp', 'ArrowLeft', 'KeyW', 'KeyA'].includes(k)) { e.preventDefault(); selSize = (selSize + STADIUMS.length - 1) % STADIUMS.length; renderSizes(); }
+        else if (['ArrowDown', 'ArrowRight', 'KeyS', 'KeyD'].includes(k)) { e.preventDefault(); selSize = (selSize + 1) % STADIUMS.length; renderSizes(); }
+        return;
+      }
       if (stage === 'maps') {
         if (!isHost) return;
         const k = e.code;
         if (k === 'Enter' || k === 'Space' || k === 'NumpadEnter') { e.preventDefault(); chooseMap(selMap); }
-        else if (k === 'Escape') { e.preventDefault(); showMenu(); }
+        else if (k === 'Escape') { e.preventDefault(); goBack(); }
         else if (['ArrowUp', 'ArrowLeft', 'KeyW', 'KeyA'].includes(k)) { e.preventDefault(); selMap = (selMap + ARENAS.length - 1) % ARENAS.length; renderMaps(); }
         else if (['ArrowDown', 'ArrowRight', 'KeyS', 'KeyD'].includes(k)) { e.preventDefault(); selMap = (selMap + 1) % ARENAS.length; renderMaps(); }
         return;
@@ -583,7 +692,9 @@
       const a = b.dataset.bl;
       if (a === 'fs') toggleFullscreen();
       else if (a === 'mode') chooseMode(+b.dataset.i);
+      else if (a === 'size') chooseSize(+b.dataset.i);
       else if (a === 'map') chooseMap(+b.dataset.i);
+      else if (a === 'form') sendTeam(+b.dataset.side, { form: b.dataset.id });
       else if (a === 'mascot') sendTeam(+b.dataset.side, { mascot: +b.dataset.i });
       else if (a === 'teamready') sendTeam(+b.dataset.side, { ready: !T.ready[+b.dataset.side] });
       else if (a === 'back') goBack();
@@ -638,8 +749,8 @@
         case 'goal': {
           [523, 659, 784, 1046, 1318].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'square'), i * 110));
           shake = 14; goalT = C.GOAL_PAUSE; wash = TEAM[e[1]].rgb;
-          const x = e[1] === 0 ? C.W : 0;
-          for (let i = 0; i < 120; i++) spark(x, C.H / 2, [TEAM[e[1]].main, '#fff', '#ffd43b', TEAM[e[1]].light][i % 4], 650, true);
+          const x = e[1] === 0 ? G.W : 0;
+          for (let i = 0; i < 120; i++) spark(x, G.H / 2, [TEAM[e[1]].main, '#fff', '#ffd43b', TEAM[e[1]].light][i % 4], 650, true);
           break;
         }
         case 'kick-off': kickT = 1; break;
@@ -648,7 +759,7 @@
         case 'end': [392, 330, 262].forEach((f, i) => setTimeout(() => beep(f, 0.25, 'triangle'), i * 160)); break;
         case 'storm': [200, 260, 330, 420].forEach((f, i) => setTimeout(() => beep(f, 0.3, 'sawtooth'), i * 120)); shake = Math.max(shake, 6); break;
         case 'storm-end': {
-          const mine = v.owners.indexOf(you()), side = mine < 0 ? -1 : (mine < C.TEAM ? 0 : 1);
+          const mine = v.owners.indexOf(you()), side = mine < 0 ? -1 : (mine < G.n ? 0 : 1);
           if (e[2] < 0) beep(200, 0.3, 'triangle');
           else if (side === e[2]) [523, 659, 784].forEach((f, i) => setTimeout(() => beep(f, 0.14, 'square'), i * 90));
           else [330, 262].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'triangle'), i * 120));
@@ -656,8 +767,8 @@
         }
         case 'heckle': {                                              // [pid, side, what, from]: something flies in from the stands
           const lv = lastView, ds = lv ? lv.discs.filter((q) => q.side === e[2] && lv.owners[q.i] === e[1]) : [];
-          const tx = ds.length ? ds.reduce((a, q) => a + q.x, 0) / ds.length : (e[2] ? C.W * 0.75 : C.W * 0.25), ty = ds.length ? ds.reduce((a, q) => a + q.y, 0) / ds.length : C.H / 2;
-          thrown.push({ what: e[3], x0: clamp(e[4] * C.W, 60, C.W - 60), y0: e[4] < 0.5 ? -TM + 24 : C.H + BM - 24, x1: tx, y1: ty, t: 0, T: 0.75 });
+          const tx = ds.length ? ds.reduce((a, q) => a + q.x, 0) / ds.length : (e[2] ? G.W * 0.75 : G.W * 0.25), ty = ds.length ? ds.reduce((a, q) => a + q.y, 0) / ds.length : G.H / 2;
+          thrown.push({ what: e[3], x0: clamp(e[4] * G.W, 60, G.W - 60), y0: e[4] < 0.5 ? -TM + 24 : G.H + BM - 24, x1: tx, y1: ty, t: 0, T: 0.75 });
           [300, 220].forEach((f, i) => setTimeout(() => beep(f, 0.12, 'sawtooth'), i * 140));
           break;
         }
@@ -686,8 +797,10 @@
     function resize() {
       const w = canvas.clientWidth || 800, dpr = Math.min(2, window.devicePixelRatio || 1);
       const pw = Math.round(w * dpr);
-      if (canvas.width === pw && bgBuilt === bgMap) return;
-      bgBuilt = bgMap;
+      const key = bgMap + '|' + G.id;
+      wrap.style.setProperty('--bl-ar', (VW / VH).toFixed(4));          // the frame follows the stadium's shape
+      if (canvas.width === pw && bgBuilt === key) return;
+      bgBuilt = key;
       canvas.width = pw; canvas.height = Math.round(pw * VH / VW);
       k = canvas.width / VW;
       bg = document.createElement('canvas'); bg.width = canvas.width; bg.height = canvas.height;
@@ -703,32 +816,33 @@
       paintGround(c, map, rnd);                                                    // the playing surface and a soft pool of light
       // the nets
       for (const s of [0, 1]) {
-        const x0 = s ? C.W : -C.NET, x1 = s ? C.W + C.NET : 0, t = TEAM[s];
-        c.fillStyle = 'rgba(4,8,26,.72)'; c.fillRect(x0, C.GY0, C.NET, C.GY1 - C.GY0);
+        const x0 = s ? G.W : -G.NET, x1 = s ? G.W + G.NET : 0, t = TEAM[s];
+        c.fillStyle = 'rgba(4,8,26,.72)'; c.fillRect(x0, G.GY0, G.NET, G.GY1 - G.GY0);
         c.strokeStyle = 'rgba(255,255,255,.28)'; c.lineWidth = 1.5;
-        for (let x = x0; x <= x1; x += 14) { c.beginPath(); c.moveTo(x, C.GY0); c.lineTo(x, C.GY1); c.stroke(); }
-        for (let y = C.GY0; y <= C.GY1; y += 14) { c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke(); }
+        for (let x = x0; x <= x1; x += 14) { c.beginPath(); c.moveTo(x, G.GY0); c.lineTo(x, G.GY1); c.stroke(); }
+        for (let y = G.GY0; y <= G.GY1; y += 14) { c.beginPath(); c.moveTo(x0, y); c.lineTo(x1, y); c.stroke(); }
         c.lineCap = 'round'; c.strokeStyle = t.main; c.shadowColor = t.main; c.shadowBlur = 14; c.lineWidth = 7;
-        c.beginPath(); c.moveTo(x1, C.GY0); c.lineTo(s ? x1 : x0, C.GY0); c.lineTo(s ? x1 : x0, C.GY1); c.lineTo(x1, C.GY1); c.stroke();
+        c.beginPath(); c.moveTo(x1, G.GY0); c.lineTo(s ? x1 : x0, G.GY0); c.lineTo(s ? x1 : x0, G.GY1); c.lineTo(x1, G.GY1); c.stroke();
         c.shadowBlur = 0; c.strokeStyle = '#fff'; c.lineWidth = 2.5;
-        c.beginPath(); c.moveTo(x1, C.GY0); c.lineTo(s ? x1 : x0, C.GY0); c.lineTo(s ? x1 : x0, C.GY1); c.lineTo(x1, C.GY1); c.stroke();
+        c.beginPath(); c.moveTo(x1, G.GY0); c.lineTo(s ? x1 : x0, G.GY0); c.lineTo(s ? x1 : x0, G.GY1); c.lineTo(x1, G.GY1); c.stroke();
         c.lineCap = 'butt';
       }
       // the markings
       c.strokeStyle = LINE[map] || LINE.classic; c.lineWidth = 4;
-      c.strokeRect(0, 0, C.W, C.H);
-      c.beginPath(); c.moveTo(C.W / 2, 0); c.lineTo(C.W / 2, C.H); c.stroke();
-      c.beginPath(); c.arc(C.W / 2, C.H / 2, 92, 0, 7); c.stroke();
-      c.fillStyle = LINE[map] || LINE.classic; c.beginPath(); c.arc(C.W / 2, C.H / 2, 6, 0, 7); c.fill();
+      c.strokeRect(0, 0, G.W, G.H);
+      c.beginPath(); c.moveTo(G.W / 2, 0); c.lineTo(G.W / 2, G.H); c.stroke();
+      const m = (G.GY1 - G.GY0) / 220;                                               // the markings follow the size of the goal mouth
+      c.beginPath(); c.arc(G.W / 2, G.H / 2, G.H * 0.148, 0, 7); c.stroke();
+      c.fillStyle = LINE[map] || LINE.classic; c.beginPath(); c.arc(G.W / 2, G.H / 2, 6, 0, 7); c.fill();
       for (const s of [0, 1]) {
-        const x = s ? C.W : 0, d = s ? -1 : 1;
-        c.strokeRect(s ? C.W - 160 : 0, C.H / 2 - 190, 160, 380);
-        c.strokeRect(s ? C.W - 60 : 0, C.H / 2 - 120, 60, 240);
-        c.beginPath(); c.arc(x + d * 110, C.H / 2, 5, 0, 7); c.fill();
-        c.beginPath(); c.arc(x + d * 110, C.H / 2, 82, s ? Math.PI - 0.88 : -0.88, s ? Math.PI + 0.88 : 0.88); c.stroke();
+        const x = s ? G.W : 0, d = s ? -1 : 1;
+        c.strokeRect(s ? G.W - 160 * m : 0, G.H / 2 - 190 * m, 160 * m, 380 * m);
+        c.strokeRect(s ? G.W - 60 * m : 0, G.H / 2 - 120 * m, 60 * m, 240 * m);
+        c.beginPath(); c.arc(x + d * 110 * m, G.H / 2, 5, 0, 7); c.fill();
+        c.beginPath(); c.arc(x + d * 110 * m, G.H / 2, 82 * m, s ? Math.PI - 0.88 : -0.88, s ? Math.PI + 0.88 : 0.88); c.stroke();
       }
       // the posts
-      for (const [px, py, s] of [[0, C.GY0, 0], [0, C.GY1, 0], [C.W, C.GY0, 1], [C.W, C.GY1, 1]]) {
+      for (const [px, py, s] of [[0, G.GY0, 0], [0, G.GY1, 0], [G.W, G.GY0, 1], [G.W, G.GY1, 1]]) {
         c.fillStyle = TEAM[s].main; c.beginPath(); c.arc(px, py, C.POST + 3, 0, 7); c.fill();
         c.fillStyle = '#fff'; c.beginPath(); c.arc(px, py, C.POST, 0, 7); c.fill();
       }
@@ -737,6 +851,7 @@
     const emoji = (ch, x, y, size) => { g.font = `${size}px ${EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(ch, x, y + size * 0.06); };
 
     function draw(v, dt) {
+      setGeo(v.size);
       bgMap = v.fx.map;
       resize();
       if (!bg) return;
@@ -754,15 +869,15 @@
       if (drag && !planning) drag = null;                           // the round started under your finger, or you locked in
 
       // shadows, ball trail
-      for (const d of v.discs) { g.fillStyle = 'rgba(0,0,0,.34)'; g.beginPath(); g.ellipse(d.x + 4, d.y + 7, C.DR, C.DR * 0.92, 0, 0, 7); g.fill(); }
-      g.fillStyle = 'rgba(0,0,0,.34)'; g.beginPath(); g.ellipse(v.ball.x + 3, v.ball.y + 5, C.BR, C.BR * 0.9, 0, 0, 7); g.fill();
+      for (const d of v.discs) { g.fillStyle = 'rgba(0,0,0,.34)'; g.beginPath(); g.ellipse(d.x + 4, d.y + 7, G.dr, G.dr * 0.92, 0, 0, 7); g.fill(); }
+      g.fillStyle = 'rgba(0,0,0,.34)'; g.beginPath(); g.ellipse(v.ball.x + 3, v.ball.y + 5, G.br, G.br * 0.9, 0, 0, 7); g.fill();
       trail.push({ x: v.ball.x, y: v.ball.y });
       if (trail.length > 12) trail.shift();
       const sp = Math.hypot(v.ball.vx, v.ball.vy);
       if (sp > 350) for (let i = 0; i < trail.length - 1; i++) {
         const q = trail[i];
         g.fillStyle = `rgba(255,255,255,${(i / trail.length) * 0.24 * Math.min(1, sp / 1100)})`;
-        g.beginPath(); g.arc(q.x, q.y, C.BR * (0.4 + 0.6 * i / trail.length), 0, 7); g.fill();
+        g.beginPath(); g.arc(q.x, q.y, G.br * (0.4 + 0.6 * i / trail.length), 0, 7); g.fill();
       }
       drawOmens(v, t);
       if (v.ph === 'plan') drawRings(v, t);
@@ -771,7 +886,7 @@
       for (const b of v.fx.bales) drawBale(b);
       if (v.ph === 'plan') drawPlans(v);
       if (drag) drawAim(drag);
-      if (hoverBlock >= 0 && v.fx.block[hoverBlock]) { const d = v.discs[hoverBlock]; tag(BLOCKED[v.fx.block[hoverBlock]], d.x, d.y - C.DR - 16, '#ff9f9f'); }
+      if (hoverBlock >= 0 && v.fx.block[hoverBlock]) { const d = v.discs[hoverBlock]; tag(BLOCKED[v.fx.block[hoverBlock]], d.x, d.y - G.dr - 16 * HS, '#ff9f9f'); }
       drawThrown(dt);
       drawParts(dt);
       drawAmbient(v, dt, t);
@@ -783,9 +898,9 @@
     // ------------------------------------------------------------------ arena effects
     const flavorOf = (what) => (window.BobbleMini && BobbleMini.FLAVOR[what]) || { emoji: '🍅', colors: ['#d62b1f', '#ff5a3c', '#8f1208'] };
     function tag(txt, x, y, col) {
-      g.font = '9px "Press Start 2P", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      const w = g.measureText(txt).width + 10;
-      g.fillStyle = 'rgba(4,6,30,.85)'; g.fillRect(x - w / 2, y - 8, w, 16);
+      g.font = `${9 * HS}px "Press Start 2P", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      const w = g.measureText(txt).width + 10 * HS;
+      g.fillStyle = 'rgba(4,6,30,.85)'; g.fillRect(x - w / 2, y - 8 * HS, w, 16 * HS);
       g.fillStyle = col; g.fillText(txt, x, y + 1);
     }
 
@@ -807,9 +922,9 @@
       if (map === 'classic') return;
       if (ambMap !== map) initAmb(map);
       stormK += ((v.ph === 'storm' ? 1 : 0) - stormK) * Math.min(1, dt * 3);
-      const X0 = -MX, X1 = C.W + MX, Y0 = -TM, Y1 = C.H + BM;
+      const X0 = -MX, X1 = G.W + MX, Y0 = -TM, Y1 = G.H + BM;
       if (map === 'stadium') {
-        if (Math.random() < dt * 9) { const top = Math.random() < 0.5; camFlashes.push({ x: X0 + Math.random() * VW, y: top ? Y0 + Math.random() * (TM - 20) : C.H + 20 + Math.random() * (BM - 30), life: 0.16 }); if (camFlashes.length > 24) camFlashes.shift(); }
+        if (Math.random() < dt * 9) { const top = Math.random() < 0.5; camFlashes.push({ x: X0 + Math.random() * VW, y: top ? Y0 + Math.random() * (TM - 20) : G.H + 20 + Math.random() * (BM - 30), life: 0.16 }); if (camFlashes.length > 24) camFlashes.shift(); }
         for (let i = camFlashes.length - 1; i >= 0; i--) {
           const f = camFlashes[i]; f.life -= dt;
           if (f.life <= 0) { camFlashes.splice(i, 1); continue; }
@@ -859,23 +974,23 @@
     function drawOmens(v, t) {
       const fx = v.fx;
       if (fx.omen && v.ph === 'plan') for (const o of fx.omen) {
-        const dy = o.from ? -1 : 1, ex = o.x, ey = o.from ? C.H : 0;
-        const len = Math.hypot(o.vx, dy * 450), ux = o.vx / len, uy = dy * 450 / len, L = 360, pulse = 0.45 + 0.35 * Math.sin(t * 6);
+        const dy = o.from ? -1 : 1, ex = o.x, ey = o.from ? G.H : 0;
+        const len = Math.hypot(o.vx, dy * 450), ux = o.vx / len, uy = dy * 450 / len, L = G.H * 0.58, pulse = 0.45 + 0.35 * Math.sin(t * 6);
         g.setLineDash([14, 11]); g.strokeStyle = `rgba(255,214,90,${pulse})`; g.lineWidth = 5; g.lineCap = 'round';
         g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex + ux * L, ey + uy * L); g.stroke(); g.setLineDash([]); g.lineCap = 'butt';
         g.fillStyle = `rgba(255,214,90,${pulse + 0.2})`; g.beginPath();
         g.moveTo(ex + ux * (L + 18), ey + uy * (L + 18)); g.lineTo(ex + ux * L - uy * 12, ey + uy * L + ux * 12); g.lineTo(ex + ux * L + uy * 12, ey + uy * L - ux * 12); g.closePath(); g.fill();
-        g.fillStyle = '#fff'; emoji('🌾', ex, ey + dy * 24, 34 + 4 * Math.sin(t * 6));
-        tag('HAY', ex, ey + dy * 54, '#ffd43b');
+        g.fillStyle = '#fff'; emoji('🌾', ex, ey + dy * 24 * G.u, (34 + 4 * Math.sin(t * 6)) * G.u);
+        tag('HAY', ex, ey + dy * 54 * G.u, '#ffd43b');
       }
       if (fx.bolt) {
         const b = fx.bolt, k = clamp(b.t / C.BOLT_WARN, 0, 1), blink = Math.sin(t * 34) > 0;
         g.strokeStyle = `rgba(255,244,140,${0.18 + (1 - k) * 0.4})`; g.lineWidth = 2; g.setLineDash([6, 8]);
         g.beginPath(); g.moveTo(b.x, -TM); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
         g.strokeStyle = blink ? '#fff27a' : '#ff9f43'; g.lineWidth = 3; g.setLineDash([10, 8]);
-        g.beginPath(); g.arc(b.x, b.y, C.STUN_R, 0, 7); g.stroke(); g.setLineDash([]);
-        g.lineWidth = 4; g.beginPath(); g.arc(b.x, b.y, 14 + (C.STUN_R - 14) * k, 0, 7); g.stroke();
-        g.fillStyle = '#fff'; emoji('⚡', b.x, b.y, 34);
+        g.beginPath(); g.arc(b.x, b.y, G.stunR, 0, 7); g.stroke(); g.setLineDash([]);
+        g.lineWidth = 4; g.beginPath(); g.arc(b.x, b.y, 14 + (G.stunR - 14) * k, 0, 7); g.stroke();
+        g.fillStyle = '#fff'; emoji('⚡', b.x, b.y, 34 * G.u);
       }
     }
 
@@ -1063,25 +1178,25 @@
         const owner = v.owners[d.i];
         if (owner === me && v.fx.block[d.i]) {                          // mine, but it can't be flicked right now
           g.strokeStyle = 'rgba(180,190,210,.75)'; g.lineWidth = 2.5; g.setLineDash([4, 5]);
-          g.beginPath(); g.arc(d.x, d.y, C.DR + 7, 0, 7); g.stroke(); g.setLineDash([]);
+          g.beginPath(); g.arc(d.x, d.y, G.dr + 7, 0, 7); g.stroke(); g.setLineDash([]);
         } else if (owner === me) {
           const planned = !!plans[d.i], hot = d.i === hover || (drag && drag.i === d.i);
           g.strokeStyle = ready ? 'rgba(124,242,154,.9)' : hot ? '#ffffff' : planned ? '#7cf29a' : '#ffd43b';
           g.lineWidth = hot ? 4 : 3;
           g.globalAlpha = hot || ready || planned ? 1 : 0.55 + 0.35 * Math.sin(t * 6 + d.i);
-          g.beginPath(); g.arc(d.x, d.y, C.DR + 7 + (hot ? 3 : planned || ready ? 0 : 2 * Math.sin(t * 6 + d.i)), 0, 7); g.stroke();
+          g.beginPath(); g.arc(d.x, d.y, G.dr + 7 + (hot ? 3 : planned || ready ? 0 : 2 * Math.sin(t * 6 + d.i)), 0, 7); g.stroke();
           g.globalAlpha = 1;
         } else if (owner >= 0 && d.side === (myTeamSide(v))) {
           g.strokeStyle = `rgba(${TEAM[d.side].rgb},.55)`; g.lineWidth = 2.5; g.setLineDash([5, 5]);
-          g.beginPath(); g.arc(d.x, d.y, C.DR + 6, 0, 7); g.stroke(); g.setLineDash([]);
+          g.beginPath(); g.arc(d.x, d.y, G.dr + 6, 0, 7); g.stroke(); g.setLineDash([]);
         }
       }
     }
-    function myTeamSide(v) { const i = v.owners.indexOf(you()); return i < 0 ? -1 : (i < C.TEAM ? 0 : 1); }
+    function myTeamSide(v) { const i = v.owners.indexOf(you()); return i < 0 ? -1 : (i < G.n ? 0 : 1); }
 
     // frostbite, stun, a splat, a padlock: what has happened to a bobble
     function drawStatus(d, v, t) {
-      const fx = v.fx, r = C.DR, fr = fx.frost[d.i], st = fx.stun[d.i], bk = fx.block[d.i];
+      const fx = v.fx, r = G.dr, fr = fx.frost[d.i], st = fx.stun[d.i], bk = fx.block[d.i];
       if (fr > 0) {
         g.fillStyle = `rgba(200,236,255,${[0, 0.28, 0.5, 0.8][fr]})`; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
         g.strokeStyle = `rgba(255,255,255,${0.4 + 0.15 * fr})`; g.lineWidth = 2;
@@ -1090,10 +1205,10 @@
           g.beginPath(); g.moveTo(d.x + Math.cos(an) * r0, d.y + Math.sin(an) * r0); g.lineTo(d.x + Math.cos(an) * r1, d.y + Math.sin(an) * r1); g.stroke();
         }
         if (fr === 3) { g.strokeStyle = '#e8f8ff'; g.lineWidth = 4; g.beginPath(); g.arc(d.x, d.y, r + 2, 0, 7); g.stroke(); }
-        tag(fr === 3 ? 'FROZEN' : '*'.repeat(fr), d.x, d.y - r - 11, '#bfe9ff');
+        tag(fr === 3 ? 'FROZEN' : '*'.repeat(fr), d.x, d.y - r - 11 * HS, '#bfe9ff');
       } else if (fx.idle[d.i] >= C.FROST_AFTER && v.ph === 'plan') {      // one more round without moving and it gets frostbite
         g.globalAlpha = 0.6 + 0.4 * Math.sin(t * 7);
-        tag('COLD!', d.x, d.y - r - 11, '#ffd43b'); g.globalAlpha = 1;
+        tag('COLD!', d.x, d.y - r - 11 * HS, '#ffd43b'); g.globalAlpha = 1;
       }
       if (st > 0) {
         g.fillStyle = 'rgba(20,20,50,.38)'; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
@@ -1108,14 +1223,14 @@
           g.stroke();
         }
         g.lineJoin = 'miter';
-        tag(`STUN ${Math.ceil(st)}s`, d.x, d.y - r - 11, '#fff27a');
+        tag(`STUN ${Math.ceil(st)}s`, d.x, d.y - r - 11 * HS, '#fff27a');
       }
       if (fx.pelt[d.i]) {                                                   // the pelted player's bobbles: stuck, or carried by a teammate
         const fl = flavorOf(fx.mini && fx.mini.what);
         g.globalAlpha = 0.72; g.fillStyle = fl.colors[0];
         for (let n = 0; n < 4; n++) { g.beginPath(); g.arc(d.x + Math.cos(n * 1.7) * r * 0.45, d.y + Math.sin(n * 2.1) * r * 0.4, r * (0.42 + 0.1 * (n % 2)), 0, 7); g.fill(); }
         g.globalAlpha = 1; g.fillStyle = '#fff'; emoji(fl.emoji, d.x, d.y, r * 0.8);
-        tag(bk === 2 ? 'STUCK' : 'CARRIED', d.x, d.y - r - 11, '#ffb36b');
+        tag(bk === 2 ? 'STUCK' : 'CARRIED', d.x, d.y - r - 11 * HS, '#ffb36b');
       } else if (bk === 4) {
         g.fillStyle = 'rgba(20,24,40,.42)'; g.beginPath(); g.arc(d.x, d.y, r, 0, 7); g.fill();
         g.fillStyle = '#fff'; emoji('🔒', d.x, d.y, r * 0.8);
@@ -1123,7 +1238,7 @@
     }
 
     function drawDisc(d, v, t) {
-      const col = TEAM[d.side], r = C.DR;
+      const col = TEAM[d.side], r = G.dr;
       const grad = g.createRadialGradient(d.x - r * 0.32, d.y - r * 0.38, 3, d.x, d.y, r * 1.1);
       grad.addColorStop(0, col.light); grad.addColorStop(0.4, col.main); grad.addColorStop(1, col.dark);
       g.fillStyle = grad; g.strokeStyle = 'rgba(6,8,38,.92)'; g.lineWidth = 3.5;
@@ -1140,8 +1255,8 @@
     }
 
     function drawBall(b, dt) {
-      ballRot += Math.hypot(b.vx, b.vy) * dt / C.BR * 0.8;
-      const r = C.BR;
+      ballRot += Math.hypot(b.vx, b.vy) * dt / G.br * 0.8;
+      const r = G.br;
       g.save();
       g.shadowColor = 'rgba(255,255,255,.85)'; g.shadowBlur = 16;
       const grad = g.createRadialGradient(b.x - r * 0.35, b.y - r * 0.4, 2, b.x, b.y, r * 1.1);
@@ -1162,13 +1277,13 @@
     // an arrow for a flick: from the bobble's rim, `ux,uy` unit direction, power 0..1
     function arrow(cx, cy, ux, uy, power, solid) {
       const col = `hsl(${Math.round(120 - 120 * power)},95%,58%)`;           // green to red with power
-      const reach = 60 + power * 280, x0 = cx + ux * (C.DR + 5), y0 = cy + uy * (C.DR + 5), ax = cx + ux * reach, ay = cy + uy * reach;
+      const reach = (60 + power * 280) * G.u, x0 = cx + ux * (G.dr + 5), y0 = cy + uy * (G.dr + 5), ax = cx + ux * reach, ay = cy + uy * reach;
       g.lineCap = 'round'; g.strokeStyle = col; g.lineWidth = solid ? 4 : 5;
       if (!solid) g.setLineDash([14, 11]);
       g.beginPath(); g.moveTo(x0, y0); g.lineTo(ax, ay); g.stroke();
       g.setLineDash([]);
       g.fillStyle = col; g.beginPath();
-      g.moveTo(ax + ux * 14, ay + uy * 14); g.lineTo(ax - uy * 11, ay + ux * 11); g.lineTo(ax + uy * 11, ay - ux * 11); g.closePath(); g.fill();
+      g.moveTo(ax + ux * 14 * G.u, ay + uy * 14 * G.u); g.lineTo(ax - uy * 11 * G.u, ay + ux * 11 * G.u); g.lineTo(ax + uy * 11 * G.u, ay - ux * 11 * G.u); g.closePath(); g.fill();
       g.lineCap = 'butt';
     }
 
@@ -1193,9 +1308,10 @@
       g.beginPath(); g.moveTo(dr.cx, dr.cy); g.lineTo(dr.cx + ux * shown, dr.cy + uy * shown); g.stroke();
       g.fillStyle = 'rgba(255,255,255,.8)'; g.beginPath(); g.arc(dr.cx + ux * shown, dr.cy + uy * shown, 7, 0, 7); g.fill();
       arrow(dr.cx, dr.cy, -ux, -uy, power, false);
-      g.font = '12px "Press Start 2P", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillStyle = 'rgba(4,6,30,.8)'; g.fillRect(dr.cx + ux * (shown + 34) - 34, dr.cy + uy * (shown + 34) - 11, 68, 22);
-      g.fillStyle = col; g.fillText(`${Math.round(power * 100)}%`, dr.cx + ux * (shown + 34), dr.cy + uy * (shown + 34) + 1);
+      const lb = 34 * HS;
+      g.font = `${12 * HS}px "Press Start 2P", monospace`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(4,6,30,.8)'; g.fillRect(dr.cx + ux * (shown + lb) - lb, dr.cy + uy * (shown + lb) - 11 * HS, 2 * lb, 22 * HS);
+      g.fillStyle = col; g.fillText(`${Math.round(power * 100)}%`, dr.cx + ux * (shown + lb), dr.cy + uy * (shown + lb) + HS);
       g.lineCap = 'butt';
     }
 
@@ -1213,9 +1329,10 @@
     }
 
     function drawHud(v, t) {
-      const cx = C.W / 2, y = -TM + 10;
+      const mx = G.W / 2, cx = 0, y = 0;                              // the scoreboard and the banner are drawn in their own space, HS times bigger on a big pitch
       const pix = (px) => `${px}px "Press Start 2P", monospace`;
       // scoreboard
+      g.save(); g.translate(mx, -TM + 10 * HS); g.scale(HS, HS);
       g.fillStyle = 'rgba(4,6,30,.85)'; g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 3;
       g.beginPath(); g.roundRect ? g.roundRect(cx - 290, y, 580, 56, 14) : g.rect(cx - 290, y, 580, 56); g.fill(); g.stroke();
       for (const s of [0, 1]) {
@@ -1230,10 +1347,11 @@
       }
       g.textAlign = 'center'; g.textBaseline = 'middle';
       if (v.ot) { g.fillStyle = Math.floor(t * 3) % 2 ? '#ffd43b' : '#fff'; g.font = pix(8); g.fillText('SUDDEN', cx, y + 22); g.fillText('DEATH', cx, y + 38); }
-      else { const s = Math.ceil(v.clock); g.fillStyle = s <= 15 ? '#ff5c7a' : '#fff'; g.font = pix(18); g.fillText(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, cx, y + 26); g.font = pix(7); g.fillStyle = '#9fb0ff'; g.fillText('FIRST TO ' + C.GOAL_LIMIT, cx, y + 46); }
+      else { const s = Math.ceil(v.clock); g.fillStyle = s <= 15 ? '#ff5c7a' : '#fff'; g.font = pix(18); g.fillText(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`, cx, y + 26); g.font = pix(7); g.fillStyle = '#9fb0ff'; g.fillText('FIRST TO ' + G.goalLimit, cx, y + 46); }
 
       // the banner under the pitch
-      const by = C.H + 14, bw = 800, planning = canPlan(v), ready = iAmReady(v);
+      g.restore(); g.save(); g.translate(mx, G.H + 14 * HS); g.scale(HS, HS);
+      const by = 0, bw = 800, planning = canPlan(v), ready = iAmReady(v);
       g.fillStyle = 'rgba(4,6,30,.85)'; g.strokeStyle = planning ? '#ffd43b' : ready ? '#7cf29a' : 'rgba(255,255,255,.4)'; g.lineWidth = planning || ready ? 3 : 2;
       g.beginPath(); g.roundRect ? g.roundRect(cx - bw / 2, by, bw, 46, 12) : g.rect(cx - bw / 2, by, bw, 46); g.fill(); g.stroke();
       g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -1257,17 +1375,18 @@
         g.fillStyle = '#fff'; g.font = pix(10); g.fillText('GET READY', cx, by + 23);
       }
 
+      g.restore();
       // big centre messages
       g.lineJoin = 'round';
-      const big = (txt, size, fill, stroke, yy) => { g.font = pix(size); g.lineWidth = size / 4; g.strokeStyle = stroke; g.strokeText(txt, cx, yy); g.fillStyle = fill; g.fillText(txt, cx, yy); };
+      const big = (txt, size, fill, stroke, yy) => { size *= Math.sqrt(HS); g.font = pix(size); g.lineWidth = size / 4; g.strokeStyle = stroke; g.strokeText(txt, mx, yy); g.fillStyle = fill; g.fillText(txt, mx, yy); };
       if (v.ph === 'countdown' && v.t > 0) {
         const pulse = 1 + 0.25 * (v.t % 1);
-        big(String(Math.ceil(v.t)), 90 * pulse, '#ffd43b', '#1b0f4d', C.H / 2 - 60);
+        big(String(Math.ceil(v.t)), 90 * pulse, '#ffd43b', '#1b0f4d', G.H / 2 - 60);
       } else if (v.ph === 'goal') {
         const col = TEAM[v.lastGoal] || TEAM[0], bounce = 1 + 0.08 * Math.sin(t * 12);
-        big('GOAL!', 80 * bounce, '#fff', col.dark, C.H / 2 - 40);
+        big('GOAL!', 80 * bounce, '#fff', col.dark, G.H / 2 - 40);
       } else if (kickT > 0 && v.ph === 'plan') {
-        big('PLAN!', 40, '#7cf29a', '#1b0f4d', C.H / 2 - 120);
+        big('PLAN!', 40, '#7cf29a', '#1b0f4d', G.H / 2 - 120);
       }
       g.lineJoin = 'miter';
     }
@@ -1292,7 +1411,7 @@
       const win = v.winner, tm = v.teams;
       const title = win < 0 ? 'DRAW!' : `${mascotOf(tm[win].mascot)} ${esc(tm[win].name)} WINS!`;
       const r = ctx.room(), solo = r && r.slots.length < 2, me = v.owners.indexOf(you());
-      const mineSide = me < 0 ? -1 : (me < C.TEAM ? 0 : 1);
+      const mineSide = me < 0 ? -1 : (me < G.n ? 0 : 1);
       const sub = win < 0 ? 'NOBODY COULD BREAK THE DEADLOCK' : solo || mineSide < 0 ? '' : mineSide === win ? 'YOUR TEAM TAKES THE CUP' : 'BETTER LUCK NEXT MATCH';
       over.innerHTML = `
         <h2 style="color:${win < 0 ? '#ffd43b' : TEAM[win].main}">${title}</h2>
@@ -1312,7 +1431,7 @@
       lastView = v;
       if (!v) {
         bgMap = mapId; resize();
-        if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); g.setTransform(k, 0, 0, k, MX * k, TM * k); g.font = '18px "Press Start 2P", monospace'; g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText('CONNECTING TO THE MATCH...', C.W / 2, C.H / 2); }
+        if (bg) { g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(bg, 0, 0); g.setTransform(k, 0, 0, k, MX * k, TM * k); g.font = '18px "Press Start 2P", monospace'; g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText('CONNECTING TO THE MATCH...', G.W / 2, G.H / 2); }
         return;
       }
       draw(v, dt);
@@ -1327,7 +1446,9 @@
     // ------------------------------------------------------------------ the lobby's handle on us
     function toPlay(d) {                                           // a guest: the match is on
       if (d.names) { T.names = d.names.slice(); T.mascots = d.mascots.slice(); }
+      if (d.forms) T.forms = d.forms.slice();
       if (d.mode) modeId = d.mode;
+      if (d.size) { sizeId = d.size; setGeo(d.size); }
       mapId = d.map || mapId;
       stage = 'play'; menu.classList.add('hidden'); setModeLabel();
     }
@@ -1347,14 +1468,15 @@
           onSnapshot(d);
         } else if (d.k === 'setup') {
           if (stage === 'play') return;
-          stage = d.st === 'maps' ? 'maps' : 'teams'; modeId = d.mode || modeId; mapId = d.map || 'classic';
-          T.names = d.names.slice(); T.mascots = d.mascots.slice(); T.ready = d.ready.slice();
+          stage = d.st === 'sizes' ? 'sizes' : d.st === 'maps' ? 'maps' : 'teams'; modeId = d.mode || modeId; mapId = d.map || 'classic';
+          sizeId = d.size || ''; if (sizeId) setGeo(sizeId);
+          T.names = d.names.slice(); T.mascots = d.mascots.slice(); T.forms = d.forms.slice(); T.ready = d.ready.slice();
           setModeLabel(); renderStage();
         } else if (d.k === 'begin') {
           plans = {}; lastRound = -1;
           toPlay(d);
         } else if (d.k === 'menu') {
-          stage = 'menu'; modeId = null; mapId = 'classic'; drag = null; plans = {};
+          stage = 'menu'; modeId = null; sizeId = ''; mapId = 'classic'; drag = null; plans = {};
           snaps.length = 0; base = null; ivl = 50; lastTk = -1; latest = null;
           over.classList.add('hidden'); shownOver = false;
           setModeLabel(); renderMenu();

@@ -1,6 +1,7 @@
 // node g3/web/games/bobble_league/sim.test.js
 const Sim = require('./sim.js');
 const { C } = Sim;
+C.FX_START = 0;                       // most tests want events from round 1; the 'quiet first minute' block below turns it back on
 let fails = 0;
 function check(label, ok, extra) { console.log((ok ? '  ok   ' : '  FAIL ') + label + (ok || extra === undefined ? '' : '  -> ' + extra)); if (!ok) fails++; }
 const run = (S, secs) => { for (let i = 0; i < Math.round(secs * 60); i++) Sim.step(S); };
@@ -234,8 +235,8 @@ check(`${S.shots} random flicks over ${S.round} rounds, all twelve moving at onc
 const arena = (map, sides = [0, 1], opts = {}) => Sim.create(Object.assign({ players: sides.map((side, id) => ({ id, side })), map, seed: 11, rate: 1000 }, opts));
 const take = (S, name) => S.ev.filter((e) => e[0] === name);          // events so far (not drained)
 const runTo = (S, phase, max = 60) => { for (let i = 0; i < max * 60 && S.phase !== phase; i++) Sim.step(S); return S.phase === phase; };
-/** open round 1, then pass it (everyone locks in with no flicks) so we are at the start of round 2: events start from there */
-const skipWarmup = (S) => { live(S); lockAll(S); return S; };
+/** open round 1: the arena events can start in the very first round, so this is where they are */
+const skipWarmup = (S) => live(S);
 const sideOfPlayer = (S, pid) => (S.members[0].includes(pid) ? 0 : S.members[1].includes(pid) ? 1 : -1);
 const flickOne = (S, pid, i, ax, ay) => { Sim.setPlan(S, pid, i, ax, ay); };
 const travel = (map, power) => {
@@ -268,7 +269,7 @@ console.log('arenas: the pitch feels different');
 console.log('arenas: the same seed plays out the same way');
 {
   const play = (map, seed) => {
-    const T = arena(map, [0, 1, 0, 1], { seed, rate: 3 }); live(T); const log = [];
+    const T = arena(map, [0, 1, 0, 1], { seed, rate: 1 }); live(T); const log = [];
     for (let n = 0; n < 40 * 60 * 3; n++) {
       if (T.phase === 'plan') { for (const d of T.discs) Sim.setPlan(T, T.owner[d.i], d.i, Math.cos(d.i * 2.1), Math.sin(d.i * 1.3)); lockAll(T); }
       if (T.phase === 'storm' && T.mini) for (const q of T.mini.who) Sim.miniDone(T, q, 2000 + q * 100);
@@ -287,7 +288,7 @@ console.log('stadium: an onlooker pelts a player');
 {
   let S = skipWarmup(arena('stadium', [0, 1, 0, 1]));
   const h = take(S, 'heckle');
-  check('in round 2 someone gets pelted', S.round === 2 && h.length === 1 && S.mini && S.mini.kind === 'scrub', JSON.stringify(h));
+  check('in the very first round someone gets pelted', S.round === 1 && h.length === 1 && S.mini && S.mini.kind === 'scrub', JSON.stringify(h));
   const pid = S.mini.pid, side = S.mini.side, mate = side === 0 ? (pid === 0 ? 2 : 0) : (pid === 1 ? 3 : 1);
   const theirs = S.discs.filter((d) => S.pelt[d.i]).map((d) => d.i), own = mine(S, mate).filter((i) => !S.pelt[i]);
   check('three bobbles of the pelted player are marked, all on their team', theirs.length === 3 && theirs.every((i) => S.discs[i].side === side), theirs.join());
@@ -304,7 +305,7 @@ console.log('stadium: an onlooker pelts a player');
   check('finishing the minigame frees them (a too-fast claim counts as the minimum time)', free && !S.mini && end && end[1] === pid && end[2] === 1);
   check('and their bobbles go back to them', theirs.every((i) => S.owner[i] === pid) && own.every((i) => S.owner[i] === mate) && S.pelt.every((x) => !x));
   check('so the pelted player can plan again, the teammate keeps their own three', (Sim.setReady(S, mate, false), theirs.every((i) => Sim.setPlan(S, pid, i, 0.3, 0.3)) && !Sim.setPlan(S, mate, theirs[0], 1, 0) && Sim.setPlan(S, mate, own[0], 1, 0)));
-  check('no second pelting straight after', (() => { const T = skipWarmup(arena('stadium', [0, 1])); Sim.miniDone(T, T.mini.pid, 4000); lockAll(T); return T.round === 3 && !T.mini; })());
+  check('no second pelting straight after', (() => { const T = skipWarmup(arena('stadium', [0, 1])); Sim.miniDone(T, T.mini.pid, 4000); lockAll(T); return T.round === 2 && !T.mini; })());
 
   S = skipWarmup(arena('stadium', [0, 1, 0, 1]));
   const lost = S.mini.pid; let carried = S.discs.filter((d) => S.pelt[d.i]).map((d) => d.i);
@@ -345,7 +346,7 @@ console.log('stadium: an onlooker pelts a player');
 console.log('desert: the sandstorm race');
 {
   let S = skipWarmup(arena('desert', [0, 1, 0, 1]));
-  check('round 2 opens with a sandstorm instead of planning', S.phase === 'storm' && S.mini.kind === 'dig' && S.mini.race && S.mini.who.length === 4 && take(S, 'storm').length === 1);
+  check('the first round opens with a sandstorm instead of planning', S.phase === 'storm' && S.mini.kind === 'dig' && S.mini.race && S.mini.who.length === 4 && take(S, 'storm').length === 1);
   check('nobody can plan during the storm', Sim.setPlan(S, 0, 0, 1, 0) === false && S.phase === 'storm');
   const clock = S.clock; run(S, 1);
   check('and the match clock stands still', S.clock === clock);
@@ -383,7 +384,7 @@ console.log('desert: the sandstorm race');
   check('a storm is never followed by another on the next round', (() => {
     const T = skipWarmup(arena('desert', [0, 1])); Sim.miniDone(T, 0, 2000); Sim.miniDone(T, 1, 2100); run(T, 0.1);
     lockAll(T);
-    return T.round === 3 && T.phase === 'plan';
+    return T.round === 2 && T.phase === 'plan';
   })());
   check('the snapshot carries the storm to the guests', (() => { const T = skipWarmup(arena('desert', [0, 1])); const m = Sim.parseSnapshot(JSON.parse(JSON.stringify(Sim.snapshot(T)))); return m.ph === 'storm' && m.fx.map === 'desert' && m.fx.mini.k === 'dig' && m.fx.mini.race && m.fx.mini.who.length === 2 && m.fx.mini.t > 9; })());
 }
@@ -485,7 +486,8 @@ console.log('rainforest: lightning');
   run(S, 0.05);
   check('a stunned bobble stops dead', S.stun[7] > 0 && S.discs[7].vx === 0 && S.discs[7].vy === 0);
   check('lightning only happens in the rainforest', ['classic', 'stadium', 'desert', 'tundra'].every((m) => { const U = skipWarmup(arena(m, [0, 1])); if (U.phase === 'storm') run(U, 11); run(U, 15); return !U.bolt && U.stun.every((x) => x === 0); }));
-  check('no lightning in the first round', (() => { const U = arena('rainforest', [0, 1]); live(U); run(U, 5); return !U.bolt; })());
+  check('lightning comes early: the first strike is announced within about six seconds of play', (() => { const U = Sim.create({ players: [{ id: 0, side: 0 }, { id: 1, side: 1 }], map: 'rainforest', seed: 3 }); live(U); run(U, 6); return Sim.takeEvents(U).some((e) => e[0] === 'bolt-warn'); })());
+  check('and keeps coming: at least three strikes in a minute of play, whatever the seed', [1, 2, 3, 4, 5].every((sd) => { const U = Sim.create({ players: [{ id: 0, side: 0 }, { id: 1, side: 1 }], map: 'rainforest', seed: sd }); live(U); let n = 0; for (let i = 0; i < 60 * 60; i++) { if (U.phase === 'plan') { Sim.setPlan(U, 0, 0, 0.1, 0); lockAll(U); } Sim.step(U); n += Sim.takeEvents(U).filter((e) => e[0] === 'bolt-warn').length; } return n >= 3; }));
   S = skipWarmup(arena('rainforest', [0, 1]));
   for (let i = 0; i < 600 && !S.bolt; i++) Sim.step(S);
   S.rate = 0.0001; Sim.setReady(S, 1, true); for (const d of S.discs) if (d.side === 0) { S.bolt.x = d.x; S.bolt.y = d.y; }
@@ -532,5 +534,135 @@ console.log('arenas: snapshots and chaos');
   }
 }
 
+// ====================================================================== stadium sizes and formations
+console.log('sizes: local 3 v 3, little league 4 v 4, premier league 5 v 5');
+{
+  const sized = (size, sides = [0, 1], opts = {}) => Sim.create(Object.assign({ players: sides.map((side, id) => ({ id, side })), size }, opts));
+  const G = Object.fromEntries(Sim.SIZES.map((z) => [z, Sim.geo(z)]));
+  const share = (T) => { const c = {}; T.discs.forEach((d) => { c[T.owner[d.i]] = (c[T.owner[d.i]] || 0) + 1; }); return c; };
+  check('the menu offers exactly three sizes, smallest first', Sim.SIZES.join() === 'local,little,premier');
+  check('teams of 3, 4 and 5', G.local.n === 3 && G.little.n === 4 && G.premier.n === 5);
+  const area = (g) => g.W * g.H;
+  check('each stadium is significantly bigger than the last (at least 2x, then 1.7x the area)', area(G.little) > 2 * area(G.local) && area(G.premier) > 1.7 * area(G.little), Sim.SIZES.map((z) => area(G[z])).join());
+  check('an unknown size falls back to the standard pitch', sized('mars').size === 'standard' && sized(undefined).n === 6 && sized(undefined).g.W === C.W);
+  for (const z of Sim.SIZES) {
+    const g = G[z], n = g.n;
+    let T = sized(z);
+    check(`${z}: ${n} bobbles a side, ball in the middle, goal mouth centred`, T.discs.length === 2 * n && T.discs.filter((d) => d.side === 0).length === n && T.ball.x === g.W / 2 && T.ball.y === g.H / 2 && g.GY0 + g.GY1 === g.H);
+    for (const f of Sim.formsFor(n)) {
+      T = sized(z); Sim.setFormation(T, 0, f.id); Sim.setFormation(T, 1, f.id); Sim.restart(T);
+      const a = T.discs.concat(T.ball);
+      let bad = '';
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== T.ball && !(a[i].x >= a[i].r && a[i].x <= g.W - a[i].r && a[i].y >= a[i].r && a[i].y <= g.H - a[i].r)) bad = 'off the pitch';
+        if (a[i] !== T.ball && (a[i].side === 0 ? a[i].x >= g.W / 2 : a[i].x <= g.W / 2)) bad = 'on the wrong half';
+        for (let j = i + 1; j < a.length; j++) if (Math.hypot(a[i].x - a[j].x, a[i].y - a[j].y) < a[i].r + a[j].r + 4) bad = `overlap ${i}/${j}`;
+      }
+      check(`${z} / ${f.name} (${f.shape}): everyone fits, on their own half, nobody overlaps`, !bad, bad);
+    }
+    T = sized(z);
+    check(`${z}: the second team is the first team's mirror image`, T.discs.slice(0, n).every((d, k) => T.discs[n + k].x === g.W - d.x && T.discs[n + k].y === d.y));
+    const sh = share(T);
+    check(`${z}: 1 v 1, each player commands the whole team`, sh[0] === n && sh[1] === n);
+    // a full-power flick should be able to cross most of the pitch, whatever its size
+    T = sized(z); live(T); park(T);
+    const d = T.discs[0]; d.x = 60; d.y = g.H / 2; d.px = d.x; d.py = d.y; T.ball.x = g.W - 40; T.ball.y = 40;
+    Sim.setPlan(T, 0, 0, 1, 0); lockAll(T); settle(T);
+    check(`${z}: one full-power flick carries a bobble over 55% of the pitch length`, d.x - 60 > 0.55 * g.W, `${(d.x - 60).toFixed(0)} of ${g.W}`);
+    // a goal still counts
+    T = sized(z); live(T); park(T); T.ball.x = g.W - 120; T.ball.y = g.H / 2; T.ball.vx = 1200;
+    Sim.setPlan(T, 0, 0, 1, 0); lockAll(T); run(T, 0.6);
+    check(`${z}: a shot into the right goal scores for team 0`, T.score[0] === 1 && T.phase === 'goal', `${T.phase} ${T.score}`);
+    T = sized(z); live(T); park(T); T.ball.x = 100; T.ball.y = g.H / 2; T.ball.vx = -1200;
+    Sim.setPlan(T, 0, 0, 1, 0); lockAll(T); run(T, 0.6);
+    check(`${z}: and into the left goal for team 1`, T.score[1] === 1 && T.phase === 'goal', `${T.phase} ${T.score}`);
+    T = sized(z, [0, 1, 0, 1, 0, 1, 0, 1]);
+    check(`${z}: with 4 players a side nobody commands more than their share`, Object.values(share(T)).every((v) => v <= Math.ceil(n / 4) + 1));
+    const snp = Sim.snapshot(live(sized(z, [0, 1, 0, 1])));
+    const pv = Sim.parseSnapshot(JSON.parse(JSON.stringify(snp)));
+    check(`${z}: the snapshot names the stadium (${JSON.stringify(snp).length} bytes) and the guests get the same view`, snp.sz === z && pv.size === z && pv.n === n && pv.discs.length === 2 * n && pv.discs.filter((q) => q.side === 0).length === n && pv.owners.length === 2 * n && JSON.stringify(snp).length < 600);
+  }
+
+  console.log('formations');
+  let T = sized('little');
+  check('every size has several formations to pick from, each with a spot for every bobble', [3, 4, 5].every((n) => Sim.formsFor(n).length >= 3 && Sim.formsFor(n).every((f) => f.pts.length === n && f.name && f.id)));
+  check('and their ids are unique', [3, 4, 5].every((n) => new Set(Sim.formsFor(n).map((f) => f.id)).size === Sim.formsFor(n).length));
+  check('the default formation is the first one', T.form[0] === Sim.formsFor(4)[0].id && T.form[1] === Sim.formsFor(4)[0].id);
+  check('a made-up formation is refused', Sim.setFormation(T, 0, 'nonsense') === false && T.form[0] === Sim.formsFor(4)[0].id);
+  const pos = (U) => U.discs.map((q) => `${q.x},${q.y}`).join('|');
+  const before = pos(T), gl = Sim.geo('little');
+  check('picking a formation is accepted', Sim.setFormation(T, 0, 'attack') === true && T.form[0] === 'attack' && T.form[1] === Sim.formsFor(4)[0].id);
+  Sim.restart(T);
+  check('it moves only that team at the next kick-off', pos(T) !== before && T.discs.slice(4).every((q, k) => q.x === gl.W - Math.round(Sim.formsFor(4)[0].pts[k][0] * gl.W)));
+  check('an attacking line stands further up the pitch than a defensive one', (() => { const x = (id) => Math.max(...Sim.formsFor(4).find((f) => f.id === id).pts.map((q) => q[0])); return x('attack') > x('defend'); })());
+  T = live(sized('little')); Sim.setFormation(T, 1, 'defend');
+  T.ball.x = gl.W - 120; T.ball.y = gl.H / 2; T.ball.vx = 1400; park(T);
+  Sim.setPlan(T, 0, 0, 1, 0); lockAll(T); run(T, 0.5 + C.GOAL_PAUSE + 0.2);
+  check('after a goal both teams line up in their chosen formation again', T.phase === 'plan' && T.discs[4].x === gl.W - Math.round(Sim.formsFor(4).find((f) => f.id === 'defend').pts[0][0] * gl.W), `${T.phase} ${T.discs[4].x}`);
+  T = sized('local'); Sim.setFormation(T, 0, 'attack'); Sim.setSize(T, 'premier');
+  check("changing the stadium resets the formations to the new size's default", T.n === 5 && T.discs.length === 10 && T.form[0] === Sim.formsFor(5)[0].id);
+  check('and a restart keeps the chosen formation', (Sim.setFormation(T, 1, 'defend'), Sim.restart(T), T.form[1] === 'defend'));
+
+  console.log('events happen early and often');
+  for (const map of ['stadium', 'desert', 'tundra', 'rainforest']) {
+    let none = 0, late = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const U = Sim.create({ players: [{ id: 0, side: 0 }, { id: 1, side: 1 }], map, seed, size: 'little' });
+      let first = -1;
+      for (let i = 0; i < 30 * 60 && first < 0; i++) {
+        if (U.phase === 'storm' && U.mini) for (const q of U.mini.who) Sim.miniDone(U, q, 2000);
+        if (U.mini && !U.mini.race) Sim.miniDone(U, U.mini.pid, 2000);
+        if (U.phase === 'plan' && U.t < 20) { Sim.setReady(U, 0, true); Sim.setReady(U, 1, true); }
+        Sim.step(U);
+        if (Sim.takeEvents(U).some((e) => ['heckle', 'storm', 'omen', 'bolt-warn'].includes(e[0]))) first = i / 60;
+      }
+      if (first < 0) none++; else if (first > 12) late++;
+    }
+    check(`${map}: in 60 matches every one had an event within 30 s, almost all within 12 s (none: ${none}, late: ${late})`, none === 0 && late <= 3);
+  }
+
+  console.log('sizes: chaos');
+  for (const z of Sim.SIZES) {
+    for (const m of ['classic', 'desert', 'rainforest']) {
+      const g = G[z], T = sized(z, [0, 1, 0, 1, 0, 1], { map: m, seed: 5, rate: 2 }); live(T);
+      let sd = 77; const rn = () => { sd = (sd * 1664525 + 1013904223) >>> 0; return sd / 4294967296; };
+      let bad = '', stuck = 0;
+      for (let k = 0; k < 60 * 60 * 3 && T.phase !== 'over' && !bad; k++) {
+        if (T.phase === 'plan') { for (const d of T.discs) if (rn() < 0.8) { const a = rn() * 6.28, pw = 0.2 + rn() * 3; Sim.setPlan(T, T.owner[d.i], d.i, Math.cos(a) * pw, Math.sin(a) * pw); } lockAll(T); }
+        if (T.mini) for (const q of T.mini.who) if (rn() < 0.02) Sim.miniDone(T, q, 1500);
+        Sim.step(T); Sim.takeEvents(T);
+        for (const q of T.discs.concat(T.ball)) {
+          if (!isFinite(q.x + q.y + q.vx + q.vy)) bad = 'NaN';
+          else if (q !== T.ball && !(q.x >= q.r - 0.5 && q.x <= g.W - q.r + 0.5 && q.y >= q.r - 0.5 && q.y <= g.H - q.r + 0.5)) bad = `disc ${q.i} off the pitch at ${q.x.toFixed(0)},${q.y.toFixed(0)}`;
+          else if (q === T.ball && (q.x < -g.NET - 1 || q.x > g.W + g.NET + 1 || q.y < 0 || q.y > g.H)) bad = `ball out at ${q.x.toFixed(0)},${q.y.toFixed(0)}`;
+        }
+        stuck = T.phase === 'roll' ? stuck + 1 : 0;
+        if (stuck > 30 * 60) bad = 'a round never ended';
+      }
+      check(`${z} / ${m}: ${T.shots} flicks over ${T.round} rounds: nothing escapes, goes NaN or never stops` + (bad ? ` (${bad})` : ''), !bad && T.shots > 40);
+    }
+  }
+}
+
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
+
+console.log('a quiet first minute');
+{
+  C.FX_START = 60;
+  const all = (T) => Sim.takeEvents(T).map((e) => e[0]);
+  const fx = ['heckle', 'storm', 'omen', 'bolt-warn'];
+  for (const map of ['stadium', 'desert', 'tundra', 'rainforest']) {
+    const T = arena(map); live(T);
+    let early = [], elapsed = () => T.seconds - T.clock;
+    while (elapsed() < C.FX_START - 3 && !T.winner && T.score[0] + T.score[1] === 0) {
+      lockAll(T); run(T, C.PLAN_TIME + 0.2); settle(T);
+      early = early.concat(all(T));
+    }
+    check(`${map}: no event in the first minute (${elapsed().toFixed(0)} s played, ${T.round} rounds)`, !early.some((n) => fx.includes(n)) && !T.mini && !T.bales.length && !T.bolt && elapsed() > 30, early.filter((n) => fx.includes(n)).join());
+    let late = [];
+    for (let r = 0; r < 12 && !late.some((n) => fx.includes(n)); r++) { lockAll(T); run(T, C.PLAN_TIME + 0.2); settle(T); late = late.concat(all(T)); }
+    check(`${map}: events start once the minute is up`, late.some((n) => fx.includes(n)), late.join());
+  }
+  C.FX_START = 0;
+}

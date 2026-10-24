@@ -168,6 +168,7 @@
   function launchSolo() {
     const g = G3.state.catalog[current];
     if (!g) return;
+    if (G3.accessOf(g.id) !== 'open') { G3.lockedScreen(g); return; }
     G3.beep(660, 0.12, 'square');
     location.href = `lobby.html?game=${encodeURIComponent(g.id)}&solo=1`;
   }
@@ -175,6 +176,7 @@
   function launch() {
     const g = G3.state.catalog[current];
     if (!g) return;
+    if (G3.accessOf(g.id) !== 'open') { G3.lockedScreen(g); return; }
     G3.beep(980, 0.15, 'sawtooth');
     $('#launchBtn').classList.add('bg-[#33FF66]');
     const flash = document.createElement('div');

@@ -28,6 +28,30 @@ CODE_RE = re.compile(r"[^A-Z0-9_-]")
 DEVICE_RE = re.compile(r"^(COM\d{1,3}|/dev/[\w./-]+)$")
 
 
+GAMES_DIR = Path(__file__).resolve().parent / "web" / "games"
+CODE_SUFFIXES = {".js", ".css", ".html"}
+
+
+def game_lines(gid):
+    """Non-blank lines of shipped game code in web/games/<gid> (tests and retired versions don't count)."""
+    root = GAMES_DIR / gid
+    total = 0
+    for p in root.rglob("*"):
+        if p.suffix not in CODE_SUFFIXES or p.name.endswith(".test.js") or "legacy_sideview" in p.parts:
+            continue
+        try:
+            total += sum(1 for line in p.read_text(encoding="utf-8", errors="ignore").splitlines() if line.strip())
+        except OSError:
+            pass
+    return total
+
+
+def build_progress():
+    """{game id: 0-100}: how much code each game has next to the finished base game (bobble_league = 100)."""
+    done = max(1, game_lines(hubmod.DEFAULT_GAME))
+    return {gid: 100 if gid == hubmod.DEFAULT_GAME else min(99, game_lines(gid) * 100 // done) for gid in hubmod.GAMES}
+
+
 def clean_code(text, limit=32):
     return CODE_RE.sub("", str(text or "").upper().strip())[:limit]
 
@@ -189,6 +213,7 @@ class App:
         except Exception:
             serial_ok = False
         return {"t": "init", "version": VERSION, "catalog": hubmod.catalog(),
+                "progress": build_progress(),
                 "settings": self.public_settings(), "status": self.status,
                 "room": self.room.snapshot() if self.room is not None else None,
                 "chat": list(self.chat), "sys": list(self.syslog), "ips": local_ips(),

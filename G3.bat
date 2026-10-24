@@ -6,7 +6,7 @@ set "PY="
 for %%C in ("py -3" "python") do call :try %%~C
 if not defined PY goto no_python
 %PY% -c "import serial" >nul 2>nul || echo (Optional: LoRa radio play needs "pip install pyserial". Everything else works without it.)
-echo Starting G3... its window will open. Close that window to quit.
+echo Why the u reading this who told you to do that to yourself, go get some help touch some grass cmon man
 %PY% -m g3 %*
 if errorlevel 1 goto crashed
 exit /b 0
@@ -18,7 +18,7 @@ exit /b 0
 
 :crashed
 echo.
-echo  G3 stopped with an error (see above).
+echo  HE NEED SOME MILKKK.
 pause
 exit /b 1
 

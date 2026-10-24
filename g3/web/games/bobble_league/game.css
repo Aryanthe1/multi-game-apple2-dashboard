@@ -2,7 +2,8 @@
 .bl { display: flex; flex-direction: column; gap: 0.5rem; font-family: 'Share Tech Mono', monospace; }
 .bl-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 11px; color: #22aa44; }
 .bl-stage { position: relative; border: 1px solid #33FF66; background: #02040a; line-height: 0; }
-.bl-stage canvas { display: block; width: 100%; aspect-ratio: 1220 / 772; touch-action: none; }
+/* --bl-ar is the width / height of the current stadium's view (game.js sets it when the stadium is picked) */
+.bl-stage canvas { display: block; width: 100%; aspect-ratio: var(--bl-ar, 1.58); touch-action: none; }
 .bl-over {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 14px; line-height: 1.3; text-align: center; background: rgba(2, 4, 16, 0.74); padding: 12px;
@@ -23,23 +24,21 @@
 /* The game always fills the window (and goes real fullscreen when the browser lets it): the pitch is as big as fits. */
 html.bl-open, html.bl-open body { overflow: hidden; }
 .bl.bl-full { position: fixed; inset: 0; z-index: 70; background: #030904; align-items: center; justify-content: center; padding: 8px; gap: 0.4rem; }
-.bl.bl-full .bl-top, .bl.bl-full .bl-bar { width: min(100vw - 16px, calc((100vh - 96px) * 1220 / 772)); }
+.bl.bl-full .bl-top, .bl.bl-full .bl-bar { width: min(100vw - 16px, calc((100vh - 96px) * var(--bl-ar, 1.58))); }
 .bl.bl-full .bl-stage { width: fit-content; }
-.bl.bl-full .bl-stage canvas { width: min(100vw - 18px, calc((100vh - 96px) * 1220 / 772)); }
+.bl.bl-full .bl-stage canvas { width: min(100vw - 18px, calc((100vh - 96px) * var(--bl-ar, 1.58))); }
 
 /* the game menu */
 .bl-menu { background: rgba(2, 4, 16, 0.8); gap: clamp(8px, 2vh, 18px); }
 .bl-title { font-family: 'Press Start 2P', monospace; font-size: clamp(16px, 3.4vw, 40px); color: #ffd43b; text-shadow: 0 0 18px rgba(255, 212, 59, .7), 3px 3px 0 #1b0f4d; letter-spacing: .04em; }
 .bl-modes { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; width: 100%; }
-.bl button.bl-mode, .bl .bl-mode.soon {
+.bl button.bl-mode {
   width: min(300px, 44%); min-width: 190px; text-align: left; padding: 12px 14px; border: 2px solid #33FF66; background: #071208; color: #33FF66; line-height: 1.35;
 }
 .bl .bl-mode b { display: block; font-family: 'Press Start 2P', monospace; font-weight: normal; font-size: clamp(11px, 1.5vw, 16px); margin-bottom: 8px; }
 .bl .bl-mode span { display: block; font-size: 12px; color: #6fdc8a; }
 .bl button.bl-mode.sel, .bl button.bl-mode:hover { background: #0c2410; color: #ffd43b; border-color: #ffd43b; box-shadow: 0 0 16px rgba(255, 212, 59, .45); }
 .bl button.bl-mode.sel span, .bl button.bl-mode:hover span { color: #e9dca0; }
-.bl .bl-mode.soon { border: 2px dashed #156628; background: transparent; color: #1e7e34; cursor: default; }
-.bl .bl-mode.soon span { color: #1e7e34; }
 
 /* the team setup screen: name and mascot for each team, then READY */
 .bl-menu.teams { justify-content: flex-start; overflow-y: auto; padding-top: clamp(8px, 2.5vh, 26px); gap: clamp(6px, 1.6vh, 14px); }
@@ -123,3 +122,21 @@ html.bl-open, html.bl-open body { overflow: hidden; }
 .bl-pop-tx span { font-size: 13px; color: #dfe6ff; }
 .bl-pop-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 100%; background: var(--tone, #ffd43b); transform-origin: left; }
 @keyframes bl-pop-in { from { opacity: 0; transform: translateY(-14px) scale(.96); } to { opacity: 1; transform: none; } }
+
+/* the stadium picker: a card per size with a little picture of the pitch, drawn to scale */
+.bl-sizes { max-width: 1060px; align-items: stretch; }
+.bl button.bl-size { width: min(300px, 31%); min-width: 200px; display: flex; flex-direction: column; gap: 4px; }
+.bl .bl-size .bl-pitch { display: flex; align-items: center; justify-content: center; min-height: 138px; background: rgba(0, 0, 0, .28); border: 1px solid #156628; padding: 6px; margin-bottom: 4px; }
+.bl .bl-size .bl-warn { display: block; font-style: normal; font-size: 11px; color: #ff9f43; margin-top: 4px; }
+.bl-svg { display: block; height: auto; max-width: 100%; }
+
+/* formation picker on the team screen */
+.bl-formrow { display: grid; grid-template-columns: 1fr minmax(110px, 38%); gap: 8px; align-items: center; }
+.bl-forms { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.bl .bl-forms button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border: 2px solid #156628; background: #071208; font-size: 11px; line-height: 1.2; text-align: left; }
+.bl .bl-forms button i { font-style: normal; font-size: 10px; color: #6fdc8a; letter-spacing: .08em; }
+.bl .bl-forms button:hover:not(:disabled) { background: #0c2410; border-color: #ffd43b; color: inherit; }
+.bl .bl-forms button.sel { border-color: #ffd43b; background: #1d2a0c; box-shadow: 0 0 10px rgba(255, 212, 59, .55); color: #ffd43b; }
+.bl .bl-forms button:disabled { cursor: default; opacity: .55; }
+.bl .bl-forms button.sel:disabled { opacity: 1; }
+.bl-formview .bl-svg { width: 100%; }

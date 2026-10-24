@@ -5,13 +5,17 @@
   const { $, $$, esc } = G3;
 
   const BLURBS = {
-    bobble_league: ['Top-down tactics: two teams of 6 bobbles, shared out between the players, and one glowing ball.', 'Both teams plan a flick for each bobble in secret, lock in, and every flick happens at once.', 'First to 3 goals wins, or the leader when the clock runs out.'],
+    bobble_league: ['Top-down tactics: two teams of 3, 4 or 5 bobbles (you pick the stadium), shared out between the players, and one glowing ball.', 'Both teams plan a flick for each bobble in secret, lock in, and every flick happens at once.', 'First to 3 goals wins, or the leader when the clock runs out.'],
     rising_rush: ['Boss rush: a band of ninjas against towering bosses.', 'Team up, time your strikes and bring each boss down.'],
     battle_tide: ['Naval tactics for up to 4 captains.', 'Position battleships, destroyers and subs, trade broadsides, sink the enemy fleet.'],
     letter_league: ['A co-op word puzzle on one shared board.', 'Longer words and combos score for the whole team.'],
     liars_bar: ['Deck bluffing and dice for 2-4 players.', 'Play cards face-down, call a bluff, outlast the table.'],
     whos_away: ['A co-op mystery escape room in an empty mansion.', 'Search rooms, combine clues and crack the lock together.'],
   };
+
+  // Which cartridges can be played yet is decided in classified.js (F1 open, F2 classified, F3 and up work in progress).
+  const { accessOf, built } = G3;
+  const locked = (id) => accessOf(id) !== 'open';
 
   const ui = { mode: 'online', role: 'host', code: '', addr: '', rroom: '', device: '', lroom: 'FORGE', ip: '', max: 8, ports: null, game: null };
   let log = [];
@@ -42,7 +46,7 @@
     $('#badgeTransport').textContent = r ? s.link : '---';
     $('#badgePlayers').textContent = `${g.min}-${g.max}`;
     $('#badgeRoom').textContent = where;
-    const phase = !r ? 'IDLE' : r.link !== 'up' ? 'LINKING' : r.phase === 'playing' ? 'RUNNING' : 'IN_LOBBY';
+    const phase = !r ? ({ classified: 'CLASSIFIED', wip: 'WORK_IN_PROGRESS' }[accessOf(g.id)] || 'IDLE') : r.link !== 'up' ? 'LINKING' : r.phase === 'playing' ? 'RUNNING' : 'IN_LOBBY';
     $('#bootTitle').textContent = `BOOT // ${g.exe}: ${phase}`;
     $('#bootRoom').textContent = `ROOM: ${where}`;
     $('#bootPhase').textContent = `PHASE: ${phase}`;
@@ -173,7 +177,44 @@
       <div class="pt-1">${small('data-act="leave"', r.host ? '[ CLOSE ROOM ]' : '[ LEAVE ROOM ]', '#FF3366')}</div>`;
   }
 
+  // The stand-ins for cartridges that can't be played: F2 is classified, F3 and up are work in progress.
+  function lockedHTML(g) {
+    const name = esc(g.name.split('/')[0].trim());
+    const back = '<a href="index.html" class="block border border-[#156628] hover:border-[#FFB000] hover:bg-[#FFB000] hover:text-[#050d06] bg-[#071208] text-[#FFB000] py-2 px-2 text-center transition-colors text-[10px] md:text-xs">[ &lt; BACK TO CUBE ROTATOR ]</a>';
+    if (accessOf(g.id) === 'classified') {
+      return `<div class="border-2 border-[#FF3366] bg-[#0d0508] p-4 md:p-5 text-center space-y-3 relative overflow-hidden">
+          <div class="g3-stripes g3-stripes-red absolute inset-x-0 top-0 h-2"></div>
+          <div class="text-[#FF3366] text-[10px] font-pixel pt-2 tracking-widest">TOP SECRET // EYES ONLY</div>
+          <div class="font-pixel text-lg md:text-2xl text-[#FF3366] tracking-widest g3-stamp">CLASSIFIED ACCESS</div>
+          <div class="text-[#FF3366] text-xs md:text-sm font-bold">&gt; ACCESS DENIED<span class="cursor-blink">_</span></div>
+          <div class="border border-[#FF3366]/50 bg-[#050203] p-3 text-left text-[11px] md:text-xs space-y-1 text-[#e8a0b0]">
+            <div>FILE: <span class="text-[#FFB000]">${esc(g.exe)}</span></div>
+            <div>CLEARANCE REQUIRED: <span class="text-[#FF3366] font-bold">LEVEL 5</span> // YOURS: <span class="text-[#FF3366] font-bold">NONE</span></div>
+            <div>CONTENTS: <span class="g3-redact">████████████</span> <span class="g3-redact">██████</span> <span class="g3-redact">█████████</span></div>
+            <div>STATUS: <span class="g3-redact">███████████</span> // ETA: <span class="g3-redact">████</span></div>
+          </div>
+          <div class="text-[11px] text-[#e8a0b0]">&gt; THIS CARTRIDGE ${name} IS SEALED. HOSTING AND JOINING ARE DISABLED.</div>
+          <div class="g3-stripes g3-stripes-red absolute inset-x-0 bottom-0 h-2"></div>
+        </div>${back}`;
+    }
+    const pct = built(g.id), f = Math.round(pct / 5);
+    return `<div class="border-2 border-[#FFB000] bg-[#0d0a02] p-4 md:p-5 text-center space-y-3 relative overflow-hidden">
+        <div class="g3-stripes g3-stripes-amber absolute inset-x-0 top-0 h-2"></div>
+        <div class="text-[#FFB000] text-[10px] font-pixel pt-2 tracking-widest">&#9888; UNDER CONSTRUCTION &#9888;</div>
+        <div class="font-pixel text-lg md:text-2xl text-[#FFB000] glow-amber tracking-widest">WORK IN PROGRESS</div>
+        <div class="text-[#33FF66] text-xs md:text-sm">&gt; ${name} IS NOT PLAYABLE YET<span class="cursor-blink">_</span></div>
+        <div class="border border-[#FFB000]/50 bg-[#050401] p-3 text-left text-[11px] md:text-xs space-y-1 text-[#22aa44]">
+          <div>FILE: <span class="text-[#FFB000]">${esc(g.exe)}</span></div>
+          <div>BUILD: <span class="text-[#FFB000] font-pixel text-[9px]">[${'█'.repeat(f)}${'░'.repeat(20 - f)}] ${pct}%</span></div>
+          <div>STATUS: <span class="text-[#33FF66]">${pct ? 'DEVS ARE COOKING. CHECK BACK SOON.' : 'NOT STARTED. NO CODE WRITTEN YET.'}</span></div>
+        </div>
+        <div class="text-[11px] text-[#22aa44]">&gt; HOSTING AND JOINING ARE DISABLED FOR THIS CARTRIDGE. TRY F1 FOR A GAME YOU CAN PLAY.</div>
+        <div class="g3-stripes g3-stripes-amber absolute inset-x-0 bottom-0 h-2"></div>
+      </div>${back}`;
+  }
+
   function setupHTML(g) {
+    if (locked(g.id)) return lockedHTML(g);
     const st = G3.state.status, host = ui.role === 'host';
     if (busy()) {
       return `${readoutHTML(null, g)}
@@ -263,6 +304,7 @@
     if (!g) return;
     if (r && r.phase === 'playing' && G3.games[r.game]) { mountGame(r, g); return; }
     stopGame();
+    if (!r) G3.lockedScreen(g, () => { location.href = 'index.html'; });
     $('#panel').innerHTML = !r ? setupHTML(g) : r.phase === 'playing' ? playingHTML(r, g) : lobbyHTML(r, g);
   }
 
@@ -322,6 +364,7 @@
 
   // ---------------------------------------------------------------- actions
   function go() {
+    if (locked(gid())) return;
     const base = { transport: ui.mode };
     if (ui.role === 'host') {
       Object.assign(base, { game: gid(), max: ui.max });
@@ -373,7 +416,7 @@
         break;
       case 'newcode': ui.code = G3.newRoomCode(); renderPanel(); break;
       case 'go': go(); break;
-      case 'solo': G3.send('host', { transport: 'solo', game: gid() }); break;
+      case 'solo': if (locked(gid())) break; G3.send('host', { transport: 'solo', game: gid() }); break;
       case 'cancel': G3.send('cancel'); break;
       case 'search': G3.send('search'); break;
       case 'joinhost': G3.send('join', { transport: 'lan', ip: el.dataset.ip }); break;
@@ -405,7 +448,7 @@
         ui.game = want;
         G3.send('select_game', { id: want });
         history.replaceState(null, '', location.pathname);
-        if (params.get('solo') && !m.room) G3.send('host', { transport: 'solo', game: want });     // the launcher's SOLO TEST button
+        if (params.get('solo') && !m.room && !locked(want)) G3.send('host', { transport: 'solo', game: want });     // the launcher's SOLO TEST button
       }
       ready = true;
     }
